@@ -278,6 +278,9 @@ function makeHarness(startApostle = "MIDASCORE", options = {}) {
       context.criticalBpButton.disabled = !state.BP.pending;
     },
     renderExtraCards() {
+      if (options.keepUnchangedExtraCards) {
+        if (context.keepExtraGrid) return false;
+      }
       context.extraGrid.replaceChildren();
     },
     renderPanelTokens() {
@@ -745,6 +748,21 @@ test("Demidjinn keeps AI IV aside and AI O at the bottom at level IV", () => {
   assert.ok(activeWishTrait);
   assert.equal(activeWishTrait.alt, "Sand to Sea");
   assert.match(activeWishTrait.src, /DEMIDJINN_WISH_I_001\.jpg$/);
+});
+
+test("Demidjinn keeps exactly one global-wish card when the base extra view stays unchanged", () => {
+  const app = makeHarness("HEKATON", { keepUnchangedExtraCards: true });
+  app.levels.DEMIDJINN = 4;
+  app.renderApostle("DEMIDJINN");
+  app.specialRoot.dispatch("click", makeActionTarget("next-global-wish"));
+  app.specialRoot.dispatch("click", makeActionTarget("next-global-wish"));
+  const image = app.extraGrid.children.find((item) => item.dataset.demidjinnGlobalWish === "active");
+  assert.ok(image);
+  app.keepExtraGrid = true;
+  app.renderExtraCards();
+  app.renderExtraCards();
+  assert.equal(app.extraGrid.children.filter((item) => item.dataset.demidjinnGlobalWish === "active").length, 1);
+  assert.equal(app.extraGrid.children.find((item) => item.dataset.demidjinnGlobalWish === "active"), image);
 });
 
 test("Demidjinn replaces only the first BP III AI promotion with The Last Wish", () => {

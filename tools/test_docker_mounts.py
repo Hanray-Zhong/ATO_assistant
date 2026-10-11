@@ -132,7 +132,7 @@ MIXED_MEDIA_DIRS = (
 
 # 必须挂在宿主机上的本地素材（镜像里没有，不挂就永远是空的）
 REQUIRED_TARGETS = (
-    "/app/ss/battle-board.jpg",
+    "/app/ss/battle-board",
     "/app/ss/terrain",
     "/app/ss/terrain-cards",
     "/app/assets/bgm/audio",
@@ -390,7 +390,7 @@ def main() -> int:
         if Path(str(entry["source"])).suffix  # 带后缀 = 单文件挂载
     ]
     if not file_entries:
-        failures.append("compose 里没有单文件挂载？battle-board.jpg 应该在其中")
+        failures.append("compose 缺少混合媒体映射表的单文件挂载")
     for entry in file_entries:
         block = "\n".join(str(line) for line in entry["lines"])
         source = str(entry["source"])
@@ -406,7 +406,7 @@ def main() -> int:
             failures.append(f"tools/export_portable.py 的 Docker 包没有为 {source} 准备占位文件")
 
     # 5. 安装脚本准备好素材目录；平铺音频通过独立挂载直接可见。
-    for required_dir in ("app/assets/bgm/audio", "app/ss/terrain", "app/ss/terrain-cards"):
+    for required_dir in ("app/assets/bgm/audio", "app/ss/battle-board", "app/ss/terrain", "app/ss/terrain-cards"):
         if required_dir not in install_script:
             failures.append(f"tools/install-docker.sh 没有创建 {required_dir}")
 

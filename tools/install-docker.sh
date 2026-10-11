@@ -101,9 +101,19 @@ main() {
   mkdir -p app/aibp/ps \
     app/assets/exploration-cards app/assets/story-doom-cards app/assets/cycle-symbols app/assets/icons \
     app/assets/bgm app/assets/bgm/audio app/hero/assets app/map/images app/map/tokens app/record/assets \
-    app/ss/terrain app/ss/terrain-cards app/story/images app/story/data app/technology/images \
+    app/ss/battle-board app/ss/terrain app/ss/terrain-cards app/story/images app/story/data app/technology/images \
     app/story/assets/cryptic/glyphs app/story/assets/mixed-media/images app/story/assets/OO
-  if [ ! -e app/ss/battle-board.jpg ]; then
+  if grep -Fq './app/ss/battle-board:/app/ss/battle-board' compose.yaml; then
+    # Retain the legacy files for pinned older images, and never overwrite a new board.
+    if [ -f app/ss/battle-board.jpg ] && [ ! -e app/ss/battle-board/battle-board.jpg ]; then
+      cp -p app/ss/battle-board.jpg app/ss/battle-board/battle-board.jpg
+    fi
+    if [ -f app/ss/battle-board.jpg.preview.jpg ] && [ ! -e app/ss/battle-board/battle-board.jpg.preview.jpg ] \
+      && cmp -s app/ss/battle-board.jpg app/ss/battle-board/battle-board.jpg; then
+      cp -p app/ss/battle-board.jpg.preview.jpg app/ss/battle-board/battle-board.jpg.preview.jpg
+    fi
+  elif [ ! -e app/ss/battle-board.jpg ]; then
+    # A pinned old release still uses its matching single-file mount.
     : > app/ss/battle-board.jpg
     echo "已创建 app/ss/battle-board.jpg 占位文件；请覆盖为决战版图底图。"
   fi

@@ -2,7 +2,12 @@
 // catalogs; only assistant-specific controls are authored in english-ui.js.
 (() => {
   const terms = new Map();
-  const scopedTerms = new Map((window.ATO_ENGLISH_TERMS?.scoped || []).map(([selector, entries]) => [selector, new Map(entries)]));
+  const scopedTerms = new Map();
+  for (const [selector, entries] of [...(window.ATO_ENGLISH_TERMS?.scoped || []), ...(window.ATO_ENGLISH_UI_SCOPED || [])]) {
+    const scoped = scopedTerms.get(selector) || new Map();
+    for (const [from, to] of entries) scoped.set(from, to);
+    scopedTerms.set(selector, scoped);
+  }
   const add = (from, to) => {
     if (from && typeof to === 'string' && /[\u3400-\u9fff]/.test(from) && !/[\u3400-\u9fff]/.test(to)) terms.set(from, to);
   };

@@ -1,6 +1,31 @@
 window.ATO_TERMS = [
   { "from": "腐蚀液态", "to": "腐蚀态" },
 
+  // 尼采 / 无眼巨人的连击轨道与武器类型，按官方中文大卡卡面用词。
+  // 完整双语标签只在连招操作区转换，民间版保留英文对照。
+  { "from": "巨剑连招（Sword Combo）", "to": "刀剑连击", "scope": "#imageZoomAiComboActions" },
+  { "from": "火焰连招（Fire Combo）", "to": "火焰连击", "scope": "#imageZoomAiComboActions" },
+  { "from": "神浆连招（Ambrosia Combo）", "to": "神浆连击", "scope": "#imageZoomAiComboActions" },
+  { "from": "球锤连招（Mauls Combo）", "to": "铁槌连击", "scope": "#imageZoomAiComboActions" },
+  { "from": "锁链连招（Chain Combo）", "to": "链条连击", "scope": "#imageZoomAiComboActions" },
+  { "from": "身躯连招（Body Combo）", "to": "躯体连击", "scope": "#imageZoomAiComboActions" },
+  { "from": "匕首（Knife）", "to": "小刀", "scope": "#imageZoomAiComboActions" },
+  { "from": "盾牌（Shield）", "to": "盾", "scope": "#imageZoomAiComboActions" },
+  { "from": "鞭（Whip）", "to": "鞭", "scope": "#imageZoomAiComboActions" },
+  { "from": "板剑（Slabsword）", "to": "平板剑", "scope": "#imageZoomAiComboActions" },
+  { "from": "矛（Spear）", "to": "矛", "scope": "#imageZoomAiComboActions" },
+  { "from": "剑（Sword）", "to": "剑", "scope": "#imageZoomAiComboActions" },
+  { "from": "拳套（Cestus）", "to": "拳套", "scope": "#imageZoomAiComboActions" },
+  { "from": "棍棒（Club）", "to": "棍棒", "scope": "#imageZoomAiComboActions" },
+  { "from": "斧（Axe）", "to": "斧", "scope": "#imageZoomAiComboActions" },
+  { "from": "弓（Bow）", "to": "弓", "scope": "#imageZoomAiComboActions" },
+  { "from": "可打断连招的武器", "to": "可中断连击的武器", "scope": "#imageZoomAiComboActions" },
+  { "from": "无法打断连招", "to": "无法中断连击", "scope": "#imageZoomAiComboActions" },
+  { "from": "连招第二张 AI", "to": "连击第二张 AI", "scope": "#imageZoomAiComboActions" },
+  { "from": "不再触发连招", "to": "不再触发连击", "scope": "#imageZoomAiComboActions" },
+  { "from": "打断连招", "to": "中断连击", "scope": "#imageZoomAiComboActions, #breakAiComboButton" },
+  { "from": "继续连招", "to": "继续连击", "scope": "#imageZoomAiComboActions, #continueAiComboButton" },
+
   // 勘察步骤「定数框」的官方翻译：分支总表 / 分支卡 / R&R 卡里的英文，一律换成
   // 故事书官方版的对应标题（story/data/storybook-official-data.js），不是另起炉灶
   // 重译；战斗地形取官方中文地形卡的卡面名，标签徽章沿用主控台已有的 MNEMOS_TAG_ZH。

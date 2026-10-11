@@ -224,11 +224,11 @@ class CoreTests(unittest.TestCase):
         empty = Database(self.root / "empty.sqlite3")
         result = ensure_fixed_catalog(empty)
         payload = fixed_catalog_payload()
-        # 3213 条：内置清单 2673 + 故事书配图 2（只剩后日奥德赛的两张章节配图，战斗版图
+        # 3212 条：内置清单 2672 + 故事书配图 2（只剩后日奥德赛的两张章节配图，战斗版图
         # 52 条——C1/C3/C4 的 21 张 + C2 的 23 张扫描件 + C5 的 8 张版图块——已全部随文件
         # 删除退场）+ 19 首主控台 BGM + 84 张密语字形 + 435 个混排素材（映射表 1 + 裁图 434）。
         # 后三类都登记为「无需拍摄」（见 test_bgm_resources / test_cryptic_resources）。
-        self.assertEqual(3213, result["items"])
+        self.assertEqual(3212, result["items"])
         self.assertEqual(19, result["aibp_enemies"])
         self.assertEqual({"c1", "c1.5", "c2", "c2.5", "c3", "c4", "c5"}, {book["id"] for book in payload["source"]["stories"]})
         self.assertNotIn("apk", payload["source"])
@@ -303,7 +303,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(45, len(terrain_cards))
         self.assertTrue(any(item["number"] == "CJ1475" for item in payload["items"]))
         fixed_paths = {path for item in payload["items"] for path in item["faces"].values()}
-        # 4197 张固定素材（含新补录的 9 张等级面与 PNG 卡底，不含旧科技树底图；C1/C3/C4 的 21 张
+        # 4196 张固定素材（含新补录的 8 张等级面与 PNG 卡底，不含旧科技树底图；C1/C3/C4 的 21 张
         #   战斗版图、C2 的 23 张扫描件与 C5 的 8 张版图块都已随文件删除退场）
         # + 84 张密语字形（随 crypticFiles 段分发）
         # + 19 首主控台 BGM（随 bgmFiles 段分发）
@@ -313,11 +313,11 @@ class CoreTests(unittest.TestCase):
         mixed_media_paths = {
             path for path in fixed_paths if path.startswith("story/assets/mixed-media/")
         }
-        self.assertEqual(4197, len(fixed_paths - bgm_paths - cryptic_paths - mixed_media_paths))
+        self.assertEqual(4196, len(fixed_paths - bgm_paths - cryptic_paths - mixed_media_paths))
         self.assertEqual(19, len(bgm_paths))
         self.assertEqual(84, len(cryptic_paths))
         self.assertEqual(435, len(mixed_media_paths))
-        self.assertEqual(4735, len(fixed_paths))
+        self.assertEqual(4734, len(fixed_paths))
         # 已退场的故事书图片不能残留在清单里（story/images/battles/ 整个目录已删，
         # C5 补充页扫描在上一轮删除）。
         self.assertEqual([], [
@@ -338,7 +338,7 @@ class CoreTests(unittest.TestCase):
         self.assertIn("aibp/ps/other/trait/C5_TR_001.jpg", fixed_paths)
         self.assertIn("aibp/ps/other/trait/C45_COMMON_TR_001.jpg", fixed_paths)
         self.assertIn("map/tokens/sandstorm.jpg", fixed_paths)
-        self.assertIn("ss/battle-board.jpg", fixed_paths)
+        self.assertIn("ss/battle-board/battle-board.jpg", fixed_paths)
         self.assertIn("ss/terrain/anchor-blue.jpg", fixed_paths)
         self.assertIn("ss/terrain/anchor-green.jpg", fixed_paths)
         self.assertIn("ss/terrain/anchor-red.jpg", fixed_paths)
@@ -398,7 +398,8 @@ class CoreTests(unittest.TestCase):
         new_paths = {f"aibp/ps/{enemy}/{stem}.jpg" for enemy, stem in BOSS_LEVEL_BACK_CARDS}
         new_paths.add("aibp/ps/other/trait/custom_trait_blank.png")
         additions = [item for item in payload["items"] if new_paths & set(item["faces"].values())]
-        self.assertEqual(10, len(additions))
+        self.assertEqual(len(BOSS_LEVEL_BACK_CARDS) + 1, len(additions))
+        self.assertEqual(new_paths, {path for item in additions for path in item["faces"].values()})
         old_items = [CatalogItem(**item) for item in payload["items"] if not new_paths & set(item["faces"].values())]
         apply_catalog(self.db, old_items, {**payload["source"], "catalog_version": "before-boss-level-backs"})
         oracle_v = next(item for item in old_items if item.number == "HYPERTIME_ORACLE_TR_V_001")
@@ -426,6 +427,89 @@ class CoreTests(unittest.TestCase):
         ensure_fixed_catalog(self.db, checkout)
         self.assertNotEqual(first_version, self.db.get_meta("catalog_source")["catalog_version"])
         self.assertEqual(2, self.db.one("SELECT COUNT(*) n FROM catalog_items WHERE number LIKE '%.bin'")["n"])
+
+    def test_package_binary_resource_import_and_install_preserves_bytes(self):
+        target = "aibp/ps/other/3b6e9d20/07ca479b.bin"
+        raw = b"opaque packaged resource\x00\xff"
+        digest = hashlib.sha256(raw).hexdigest()
+        manifest = {"format": "ato-asset-pack", "version": 3,
+                    "items": [{"id": "binary", "cycle": "common", "module": "补充素材",
+                               "name": "binary", "number": "binary", "sort_order": 0,
+                               "capture_required": False, "faces": {"front": target}}],
+                    "assets": [{"itemId": "binary", "face": "front", "member": target,
+                                "originalName": "07ca479b.bin", "mimeType": "application/octet-stream",
+                                "sha256": digest}]}
+        pack = self.root / "binary.atopack"
+        with zipfile.ZipFile(pack, "w") as archive:
+            archive.writestr("manifest.json", json.dumps(manifest))
+            archive.writestr(target, raw)
+        result = import_package(self.db, self.library, pack)
+        self.assertEqual(1, result["imported"])
+        destination = self.root / "site"
+        destination.mkdir()
+        (destination / "index.html").write_text("ATO", encoding="utf-8")
+        for child in ("aibp", "map", "story"):
+            (destination / child).mkdir()
+        apply_install(self.db, self.library, destination, [])
+        self.assertEqual(raw, (destination / target).read_bytes())
+        row = self.db.one("SELECT * FROM asset_revisions WHERE item_id='binary'")
+        self.assertIsNone(ensure_preview(self.db, self.library, row["preview_path"]))
+        self.assertEqual(0, import_package(self.db, self.library, pack)["imported"])
+        with zipfile.ZipFile(pack, "w") as archive:
+            archive.writestr("manifest.json", json.dumps(manifest))
+            archive.writestr(target, b"corrupted")
+        with self.assertRaisesRegex(ValueError, "校验失败"):
+            import_package(self.db, self.library, pack)
+        self.assertEqual(raw, (destination / target).read_bytes())
+
+    def test_installer_generates_board_preview_and_keeps_unapproved_original(self):
+        from app.card_previews import BOARD_SOURCE, preview_for
+        item = CatalogItem(id="board-preview", cycle="common", module="决战版图", subgroup="",
+                           name="board", number="board", sort_order=0, faces={"front": BOARD_SOURCE})
+        apply_catalog(self.db, [item], {})
+        image = self.image("board.png")
+        raw = image.read_bytes()
+        store_image(self.db, self.library, image, item.id, "front", "board.png", "image/png", "package", defer_preview=True)
+        site = self.root / "site"
+        site.mkdir()
+        (site / "index.html").write_text("ATO", encoding="utf-8")
+        for child in ("aibp", "map", "story"):
+            (site / child).mkdir()
+        apply_install(self.db, self.library, site, [])
+        self.assertEqual(raw, (site / BOARD_SOURCE).read_bytes())
+        preview = site / (BOARD_SOURCE + ".preview.jpg")
+        self.assertEqual(preview_for(BOARD_SOURCE, raw), preview.read_bytes())
+        preview.write_bytes(b"user preview")
+        (site / BOARD_SOURCE).write_bytes(b"user original")
+        apply_install(self.db, self.library, site, [])
+        self.assertEqual(b"user original", (site / BOARD_SOURCE).read_bytes())
+        self.assertEqual(b"user preview", preview.read_bytes())
+        apply_install(self.db, self.library, site, [BOARD_SOURCE])
+        self.assertEqual(raw, (site / BOARD_SOURCE).read_bytes())
+        self.assertEqual(preview_for(BOARD_SOURCE, raw), preview.read_bytes())
+
+    def test_install_official_text_without_requiring_unbundled_scans(self):
+        from app.official_resources import DATA, LIBRARY, collect
+        resources = self.library / LIBRARY
+        data = resources / DATA
+        data.parent.mkdir(parents=True)
+        payload = {"books": [{"entries": [{"officialScan": {"src": "./data/ato-storybook-key-scans/c1-missing.jpg"}},
+                                           {"officialScan": {"src": "./data/ato-storybook-key-scans/c1-present.jpg"}}]}]}
+        data.write_text("window.STORYBOOK_OFFICIAL_DATA = " + json.dumps(payload) + ";", encoding="utf-8")
+        scan = resources / "story/data/ato-storybook-key-scans/c1-present.jpg"
+        scan.parent.mkdir()
+        scan.write_bytes(self.image().read_bytes())
+        with self.assertRaisesRegex(ValueError, "截图缺失"):
+            collect(resources)
+        site = self.root / "site"
+        site.mkdir()
+        (site / "index.html").write_text("ATO", encoding="utf-8")
+        for child in ("aibp", "map", "story"):
+            (site / child).mkdir()
+        apply_install(self.db, self.library, site, [])
+        self.assertEqual(data.read_bytes(), (site / DATA).read_bytes())
+        self.assertEqual(scan.read_bytes(), (site / scan.relative_to(resources)).read_bytes())
+        self.assertFalse((site / "story/data/ato-storybook-key-scans/c1-missing.jpg").exists())
 
     def test_custom_trait_template_upgrades_existing_catalog_without_losing_images(self):
         payload = fixed_catalog_payload()
@@ -495,7 +579,7 @@ class CoreTests(unittest.TestCase):
         apk = self.root / "source.apk"
         overlay = self.root / "overlay"
         destination = self.root / "current.atopack"
-        board = overlay / "ss" / "battle-board.jpg"
+        board = overlay / "ss" / "battle-board" / "battle-board.jpg"
         board.parent.mkdir(parents=True)
         board.write_bytes(b"current battle board")
         stories = {"books": [{"id": "c1", "entries": [{"id": "1", "chapterKey": "main"}]}]}
@@ -519,7 +603,7 @@ class CoreTests(unittest.TestCase):
                 "name": "决战版图",
                 "number": "battle-board",
                 "sort_order": 1,
-                "faces": {"front": "ss/battle-board.jpg"},
+                "faces": {"front": "ss/battle-board/battle-board.jpg"},
                 "capture_required": True,
             }],
         }
@@ -532,6 +616,16 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(2, manifest["version"])
             self.assertEqual("story/entity-index.json", manifest["storyFiles"][0]["member"])
             self.assertEqual(b"current battle board", archive.read(manifest["assets"][0]["member"]))
+
+        # An old APK must also export into the new directory, without requiring
+        # users to rebuild the APK just to migrate their existing artwork.
+        board.unlink()
+        with zipfile.ZipFile(apk, "a") as archive:
+            archive.writestr("assets/web/ss/battle-board.jpg", b"legacy APK board")
+        with patch("tools.build_full_pack.fixed_catalog_payload", return_value=catalog):
+            build_full_pack(apk, destination, overlay)
+        with zipfile.ZipFile(destination) as archive:
+            self.assertEqual(b"legacy APK board", archive.read("ss/battle-board/battle-board.jpg"))
 
     def test_story_import_split_merge(self):
         source = self.root / "story.txt"

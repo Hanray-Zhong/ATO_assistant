@@ -212,6 +212,12 @@ def store_image(
         raise ValueError("清单条目的面定义已损坏，请重新导入资料包后再试")
     if face not in faces:
         raise ValueError("这个条目不需要该面")
+    from .installer import installable_relative
+    target = str(faces[face])
+    binary_resource = (source == "package" and target.startswith("aibp/ps/other/")
+                       and Path(target).suffix.lower() == ".bin" and installable_relative(target))
+    if binary_resource and transform:
+        raise ValueError("二进制素材不能进行图片变换")
     if expected_sha256 is not None and not re.fullmatch(r"[a-f0-9]{64}", expected_sha256):
         raise ValueError("图片哈希格式无效")
     if expected_sha256 is not None:
@@ -223,7 +229,9 @@ def store_image(
         digest = expected_sha256
     else:
         digest = sha256_file(temp_file)
-    ext = safe_extension(original_name, mime_type)
+    ext = ".bin" if binary_resource else safe_extension(original_name, mime_type)
+    if binary_resource:
+        mime_type = "application/octet-stream"
     source_rel = Path("objects") / digest[:2] / f"{digest}{ext}"
     source_object = library / source_rel
 
@@ -231,8 +239,9 @@ def store_image(
     # library, so failed uploads leave no orphan files and do not poison
     # chunked upload sessions (whose temp file would otherwise be consumed).
     try:
-        with Image.open(temp_file) as probe:
-            probe.verify()
+        if not binary_resource:
+            with Image.open(temp_file) as probe:
+                probe.verify()
     except Exception as exc:
         temp_file.unlink(missing_ok=True)
         raise ValueError(f"上传的文件不是可识别的图片：{exc}") from exc
@@ -253,7 +262,7 @@ def store_image(
     preview_rel = preview_relative(digest, item_id, face)
     preview = library / preview_rel
     width = height = None
-    if not defer_preview:
+    if not defer_preview and not binary_resource:
         width, height = image_preview(original, preview)
     transform_json = dump_transform(rotation, crop)
     with db.connect() as conn:
@@ -338,10 +347,10 @@ def transform_revision(
 def ensure_preview(db: Database, library: Path, relative: str) -> Path | None:
     """Create a deferred preview on first access and persist its dimensions."""
     revision = db.one(
-        "SELECT id,original_path,preview_path FROM asset_revisions WHERE preview_path=? AND is_current=1 LIMIT 1",
+        "SELECT id,original_path,preview_path,mime_type FROM asset_revisions WHERE preview_path=? AND is_current=1 LIMIT 1",
         (relative,),
     )
-    if not revision:
+    if not revision or revision["mime_type"] == "application/octet-stream":
         return None
     preview = library / revision["preview_path"]
     if preview.is_file():

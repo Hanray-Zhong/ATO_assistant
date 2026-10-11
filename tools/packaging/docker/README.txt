@@ -40,6 +40,11 @@ Stop:
   docker compose down
 
 Update:
+  For 3.6.1-rc.2, first replace compose.yaml (or compose.legacy.yaml) with the file
+  from the same release tag, preserving your custom ports and deployment settings.
+  Set ATO_VERSION=3.6.1-rc.2 in .env; prereleases do not update latest.
+  Reimport the updated 2026-10-11 atopack into app/ so the board and thumbnail are
+  available in app/ss/battle-board/. Updating the image alone is insufficient.
   docker compose pull
   docker compose up -d
 
@@ -55,15 +60,13 @@ pull_policy and bind.create_host_path, which v1 does not support. The image, por
 saves and artwork paths are the same as in compose.yaml. It pulls the published
 image; for a local build, set ATO_IMAGE in .env and omit the pull command.
 
-Before the first start, app/ss/battle-board.jpg must be a FILE, not a directory.
-Move aside any directory created there by an earlier failed start before running:
+The battle board and its thumbnail share one directory mount. Prepare the folder:
 
-  mkdir -p data app/ss
-  touch app/ss/battle-board.jpg
+  mkdir -p data app/ss/battle-board
   docker-compose -f compose.legacy.yaml pull && docker-compose -f compose.legacy.yaml up -d
 
-touch preserves any existing image content. Replace an empty placeholder with your
-real board image later. Visit http://127.0.0.1:8793/ (or use your server's IP).
+Put battle-board.jpg and battle-board.jpg.preview.jpg in app/ss/battle-board/.
+No placeholder image is required. Visit http://127.0.0.1:8793/ (or use your server's IP).
 
 Update: repeat the pull && up -d command above; up alone may reuse the old image.
 Stop: docker-compose -f compose.legacy.yaml down
@@ -77,8 +80,9 @@ Which parts live on the host
 Program files always come from the image; only your own artwork and audio are bind
 mounted from this folder:
 
-  app/ss/battle-board.jpg   决战版图底图. The package ships a 0-byte placeholder;
-                            replace it with the real image, keep the file name.
+  app/ss/battle-board/      决战版图原图与 AIBP 缩略图. One directory contains
+                            battle-board.jpg and battle-board.jpg.preview.jpg.
+                            The second screen uses the original; AIBP uses the thumbnail.
   app/ss/terrain/           第二屏地形图 (second-screen terrain tiles)
   app/ss/terrain-cards/     第二屏地形卡 (second-screen terrain cards)
   app/assets/bgm/audio/    主控台背景音乐. Put .mp3 / .ogg files here; the file names
@@ -142,3 +146,15 @@ there; without both, story pages show their text without the mixed-media artwork
 
 No audio files and no official game artwork are included in the public image (copyright),
 so those folders are yours to fill.
+
+Upgrading the battle-board mount
+-------------------------------
+Update compose.yaml (or compose.legacy.yaml) along with the image, replacing the
+old single-file mount with ./app/ss/battle-board:/app/ss/battle-board:ro, then
+recreate the container. Pulling the image alone does not update the host Compose file.
+The installer copies old app/ss/battle-board.jpg and its matching preview into
+the new directory, retains the old files for pinned older images, and never
+overwrites existing files in the new directory. For a manual upgrade or an old
+resource pack, put both files in the new directory yourself. On a source checkout,
+python tools/generate_aibp_previews.py also copies an old board to the new path
+when needed and generates the thumbnail (requires Pillow).

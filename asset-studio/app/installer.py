@@ -13,6 +13,7 @@ from typing import Callable
 
 from .official_resources import LIBRARY, collect
 from .bgm_resources import collect_library as collect_bgm_library
+from .card_previews import canonical_board_path, is_preview_source, preview_for
 from .cryptic_resources import collect_library as collect_cryptic_library
 from .icon_resources import collect_library as collect_icon_library
 from .mixed_media_resources import allowed_target as is_mixed_media_target
@@ -99,6 +100,7 @@ def safe_relative(relative: str, label: str = "目标路径") -> str:
 def installable_relative(relative: str) -> str:
     """在 :func:`safe_relative` 之上限定安装目标只能是清单声明的素材树/类型。"""
     relative = safe_relative(relative, "素材目标路径")
+    relative = canonical_board_path(relative)
     pure = PurePosixPath(relative)
     suffix = pure.suffix.lower()
     if is_mixed_media_target(relative):
@@ -137,6 +139,8 @@ def package_original_can_install_directly(row: dict, relative: str) -> bool:
         return False
     source_suffix = Path(row.get("original_name") or row["original_path"]).suffix.lower()
     target_suffix = PurePosixPath(relative).suffix.lower()
+    if target_suffix in INSTALL_DATA_SUFFIXES and relative.startswith(INSTALL_DATA_PREFIX):
+        return source_suffix == target_suffix
     normalize = lambda suffix: ".jpg" if suffix == ".jpeg" else suffix
     return source_suffix in DIRECT_IMAGE_SUFFIXES and target_suffix in DIRECT_IMAGE_SUFFIXES
 
@@ -389,6 +393,19 @@ def install_plan(db: Database, library: Path, root: Path, replace_books: set[str
         add_file({"item_id": row["item_id"], "name": row["name"], "face": row["face"], "source": source_rel,
                   "target": relative, "status": status, "direct_copy": direct_copy},
                  lambda digest=row["sha256"]: digest)
+        if direct_copy and is_preview_source(relative):
+            preview = preview_for(relative, source.read_bytes())
+            if preview is not None:
+                preview_target = relative + ".preview.jpg"
+                preview_path = safe_target(root, preview_target)
+                if preview_path.exists() and not preview_path.is_file():
+                    raise ValueError(f"目标位置已存在同名文件夹，无法安装：{preview_target}")
+                preview_digest = hashlib.sha256(preview).hexdigest()
+                preview_status = "add" if not preview_path.exists() else ("same" if sha256_file(preview_path) == preview_digest else "replace")
+                add_file({"item_id": row["item_id"], "name": row["name"] + "（预览）", "face": "preview",
+                          "source": source_rel, "target": preview_target, "status": preview_status,
+                          "card_preview_source": relative, "original_status": status},
+                         lambda digest=preview_digest: digest)
     story_count = db.one("SELECT COUNT(*) AS n FROM story_segments WHERE reviewed=1")["n"]
     if story_count:
         relative = STORY_TARGET
@@ -421,7 +438,7 @@ def install_plan(db: Database, library: Path, root: Path, replace_books: set[str
                 "target": relative,
                 "status": status,
             }, lambda payload=payload: hashlib.sha256(payload).hexdigest())
-    for relative, source in collect(library / LIBRARY):
+    for relative, source in collect(library / LIBRARY, require_scans=False):
         destination = safe_target(root, relative)
         if destination.exists() and not destination.is_file():
             raise ValueError(f"目标位置已存在同名文件夹，无法安装：{relative}")
@@ -485,10 +502,13 @@ def apply_install(db: Database, library: Path, root: Path, replacements: list[st
     backed_up: set[str] = set()
     try:
         for entry in plan["files"]:
+            if entry.get("card_preview_source") and entry.get("original_status") == "replace" and entry["card_preview_source"] not in allowed_replace:
+                skipped += 1
+                continue
             if entry["status"] == "same":
                 skipped += 1
                 continue
-            if entry["status"] == "replace" and entry["target"] not in allowed_replace:
+            if entry["status"] == "replace" and entry["target"] not in allowed_replace and entry.get("card_preview_source") not in allowed_replace:
                 skipped += 1
                 continue
             target = safe_target(root, entry["target"])
@@ -519,6 +539,11 @@ def apply_install(db: Database, library: Path, root: Path, replacements: list[st
                     if entity_index is None:
                         raise ValueError("素材库中的人物小传索引已丢失")
                     temporary.write_bytes(entity_index_javascript(entity_index))
+                elif entry.get("card_preview_source"):
+                    preview = preview_for(entry["card_preview_source"], (library / entry["source"]).read_bytes())
+                    if preview is None:
+                        raise ValueError("卡牌预览图无法生成")
+                    temporary.write_bytes(preview)
                 elif entry.get("direct_copy"):
                     shutil.copy2(library / entry["source"], temporary)
                 else:

@@ -117,7 +117,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--image-quality-keep", action="append", default=[],
-        help="重编码豁免通配（可重复/逗号分隔），命中的图原样进包，例如 ss/battle-board.jpg",
+        help="重编码豁免通配（可重复/逗号分隔），命中的图原样进包，例如 ss/battle-board/battle-board.jpg",
     )
     parser.add_argument(
         "--image-quality-keep-file", type=Path,

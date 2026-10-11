@@ -39,6 +39,7 @@ LOCAL_ONLY_FILES = {
     "personal.atopack": "private asset pack",
     "personal.atopack.partial": "half-written private asset pack",
     "tmp/private-note.txt": "private scratch note",
+    "outputs/import-test/library.sqlite3": "local resource import verification data",
     "logs/session.txt": "local runtime log",
     "Thumbs.db": "windows os scratch",
     "__pycache__/package_common.cpython-312.pyc": "python bytecode cache",
@@ -58,6 +59,7 @@ LOCAL_ONLY_FILES = {
 NEGATIVE_RULES = (
     (".atopack", "suffix", "personal.atopack"),
     ("tmp", "top", "tmp/private-note.txt"),
+    ("outputs", "top", "outputs/import-test/library.sqlite3"),
     ("icon-extract", "top", "icon-extract/svg/argo.svg"),
 )
 

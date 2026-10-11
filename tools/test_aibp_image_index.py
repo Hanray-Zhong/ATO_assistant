@@ -37,6 +37,18 @@ class ImageIndexTests(unittest.TestCase):
         result = subprocess.run([self.php, str(self.endpoint)], check=True, capture_output=True, text=True)
         return json.loads(result.stdout)["images"]
 
+    def test_previews_are_not_cards_and_stale_previews_are_ignored(self):
+        import os
+        source = "ps/TITAN_X/TITAN_X.jpg"
+        self.touch("aibp/" + source)
+        self.touch("aibp/" + source + ".preview.jpg")
+        payload = json.loads(subprocess.run([self.php, str(self.endpoint)], check=True, capture_output=True, text=True).stdout)
+        self.assertEqual(payload["images"], [source])
+        self.assertEqual(payload["previews"], {source: source + ".preview.jpg"})
+        os.utime(self.root / ("aibp/" + source + ".preview.jpg"), (1, 1))
+        payload = json.loads(subprocess.run([self.php, str(self.endpoint)], check=True, capture_output=True, text=True).stdout)
+        self.assertEqual(payload["previews"], {})
+
     def test_only_existing_public_images_are_listed(self):
         for name in ["HYPERTIME_ORACLE.jpg", "HYPERTIME_ORACLE_AI_X_002.jpg",
                      "HYPERTIME_ORACLE_TR_V_025.png", "catalog.json", "hidden.bin"]:

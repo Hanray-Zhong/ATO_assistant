@@ -12,6 +12,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
 }
 $root = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'aibp' . DIRECTORY_SEPARATOR . 'ps';
 $images = [];
+$previews = [];
 $resolvedRoot = realpath($root);
 $directories = ['other', 'other/trait'];
 if (is_dir($root)) {
@@ -32,9 +33,15 @@ foreach ($directories as $relative) {
         if (!$entry->isFile() || $entry->isLink()) continue;
         $name = $entry->getFilename();
         if (!preg_match('/\.(jpg|jpeg|png)$/iD', $name)) continue;
-        $images[] = 'ps/' . $relative . '/' . $name;
+        if (str_ends_with($name, '.preview.jpg')) continue;
+        $src = 'ps/' . $relative . '/' . $name;
+        $images[] = $src;
+        $preview = $entry->getPathname() . '.preview.jpg';
+        if (is_file($preview) && !is_link($preview) && filemtime($preview) >= $entry->getMTime()) {
+            $previews[$src] = $src . '.preview.jpg';
+        }
     }
 }
 sort($images, SORT_STRING);
-echo json_encode(['ok' => true, 'version' => 1, 'images' => $images],
+echo json_encode(['ok' => true, 'version' => 2, 'images' => $images, 'previews' => (object) $previews],
     JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);

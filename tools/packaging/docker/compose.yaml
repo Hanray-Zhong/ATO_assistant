@@ -42,15 +42,8 @@ services:
       # （index.html / app.js / styles.css / terrain-data.js）必须由镜像提供。以前整棵挂
       # ./app/ss 会把它们全部遮住 —— 镜像里修好的第二屏前端永远进不了容器，
       # 表现为「主控台更新了、第二屏还是旧版」。
-      # battle-board.jpg 是单文件挂载：文件不存在时 Docker 会建一个同名目录顶上，
-      # 版图背景就悄悄废了，所以用 create_host_path: false 让它直接报错。
-      # 安装脚本（tools/install-docker.sh）会先放一个 0 字节占位文件。
-      - type: bind
-        source: ./app/ss/battle-board.jpg
-        target: /app/ss/battle-board.jpg
-        read_only: true
-        bind:
-          create_host_path: false
+      # 决战版图原图和 AIBP 缩略图放在同一个纯素材目录，整目录挂载即可。
+      - ./app/ss/battle-board:/app/ss/battle-board:ro
       - ./app/ss/terrain:/app/ss/terrain:ro
       - ./app/ss/terrain-cards:/app/ss/terrain-cards:ro
       - ./app/story/images:/app/story/images

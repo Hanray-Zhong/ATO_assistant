@@ -3,6 +3,13 @@
 
   const cacheKey = "aibp-image-inventory-v2";
   const publicImage = /^ps\/(?:[A-Z][A-Z0-9_]+|other|other\/trait)\/[^/]+\.(?:jpg|jpeg|png)$/i;
+  const publicBosses = new Set([
+    "HEKATON", "LABYRINTHAUROS", "HERMESIAN_PURSUER", "ALPHA_TEMENOS",
+    "CHIMERA_METASTASIOS", "CYCLONUS", "THE_BURDEN", "THE_NIETZSCJEAN",
+    "HYPERTIME_ORACLE", "ICARIAN_HARPY", "SUN_DESCENDANT", "MIDASCORE",
+    "DEMIDJINN", "THE_BABELIAN_LUNACY", "DAHAKA", "DRAGON_OF_PHOBOS",
+    "MEDUKETOS", "UR_FLEECE", "TITAN_X",
+  ]);
   const listeners = new Set();
   const preloaded = new Set();
   let inventory;
@@ -22,17 +29,37 @@
 
   try {
     const cached = JSON.parse(root.localStorage.getItem(cacheKey) || "null");
-    if (cached && Date.now() - cached.savedAt < 86400000) inventory = normalize(cached.payload);
+    // A stale inventory is still useful for the first paint; refresh it in the
+    // background and let missing previews fall back to their originals.
+    if (cached) inventory = normalize(cached.payload);
   } catch { /* Storage may be unavailable or contain an older format. */ }
+
+  let releaseInventory;
+  let startupReleased = false;
+  let firstCardsPending = 0;
+  const firstCardsPainted = new Promise((resolve) => { releaseInventory = resolve; });
+  const startupFallback = root.setTimeout(releaseStartup, 1500);
+
+  function releaseStartup() {
+    if (startupReleased) return;
+    startupReleased = true;
+    root.clearTimeout(startupFallback);
+    // PHP's development server handles one request at a time. Do not let a
+    // full directory scan queue ahead of the first card images and scripts.
+    const afterPaint = () => root.setTimeout(releaseInventory, 0);
+    if (root.requestAnimationFrame) root.requestAnimationFrame(afterPaint);
+    else afterPaint();
+  }
 
   function load(force = false) {
     if (pending && !force) return pending;
     // A retry shares any still-running refresh instead of duplicating it.
     if (pending && force && refreshing) return pending;
-    const controller = new AbortController();
-    const timer = root.setTimeout(() => controller.abort(), 10000);
     refreshing = true;
-    pending = root.fetch("../api/aibp-image-index.php", { signal: controller.signal, cache: "no-store" })
+    pending = firstCardsPainted.then(() => {
+      const controller = new AbortController();
+      const timer = root.setTimeout(() => controller.abort(), 10000);
+      return root.fetch("../api/aibp-image-index.php", { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("Image index unavailable");
         const next = normalize(await response.json());
@@ -45,13 +72,20 @@
         // A valid cached inventory still works when the device is offline.
         if (inventory === undefined) inventory = null;
         return inventory;
-      }).finally(() => { root.clearTimeout(timer); refreshing = false; });
+      }).finally(() => { root.clearTimeout(timer); });
+    }).finally(() => { refreshing = false; });
     return pending;
   }
 
   let refreshing = false;
   function sourceFor(src) {
-    return inventory?.previews?.[src] || src;
+    if (inventory?.previews?.[src]) return inventory.previews[src];
+    if (inventory === undefined || (inventory && !inventory.images.includes(src))) {
+      const panel = /^ps\/([A-Z][A-Z0-9_]+)\/([^/]+)\.jpg$/.exec(src);
+      if (panel && publicBosses.has(panel[1])
+        && new RegExp(`^${panel[1]}(?:_\\d+)?$`).test(panel[2])) return `${src}.preview.jpg`;
+    }
+    return src;
   }
 
   const fullImageJobs = new Map();
@@ -156,36 +190,33 @@
       }
       img.src = display;
     };
-    if (inventory === undefined && publicImage.test(src)) void load().then(assign);
-    else assign();
+    assign();
   }
 
   function firstCards() {
-    if (!inventory) return [];
     const params = new URLSearchParams(root.location.search);
     let requested;
     try { requested = params.get("apostle") || decodeURIComponent(root.location.hash.slice(1)); } catch {}
     let name = String(requested || "HEKATON").trim().toUpperCase().replace(/[\s-]+/g, "_");
     // Hidden cards go through their existing access and decoding workflow.
     if (["HELIOS", "BLACKBEAK"].includes(name)) return [];
-    if (!inventory.images.some((src) => src.startsWith(`ps/${name}/`))) name = "HEKATON";
+    if (!publicBosses.has(name)) name = "HEKATON";
+    const listedBoss = inventory?.images.some((src) => src.startsWith(`ps/${name}/`));
     let panel = `ps/${name}/${name === "UR_FLEECE" ? "UR_FLEECE_2" : name}.jpg`;
     try {
       const saved = JSON.parse(root.localStorage.getItem("aibp-first-panel-v1") || "{}");
-      if (saved.name === name && inventory.images.includes(saved.src)) panel = saved.src;
+      if (saved.name === name && publicImage.test(saved.src) && saved.src.startsWith(`ps/${name}/${name}`)
+        && (!inventory || inventory.images.includes(saved.src))) panel = saved.src;
     } catch {}
     return [
       { id: "panelWrap", src: panel, alt: `${name} panel`, className: "panel-image" },
       { id: "routineWrap", src: `ps/${name}/${name}_ROUTINE_X_001.jpg`, alt: `${name} routine`, className: "side-card-image" },
       { id: "signatureWrap", src: `ps/${name}/${name}_SIGNATURE_X_001.jpg`, alt: `${name} signature`, className: "side-card-image" },
-    ].filter((card) => inventory.images.includes(card.src));
+    ].filter((card) => !listedBoss || inventory.images.includes(card.src));
   }
 
   function showFirstCards() {
-    if (inventory === undefined) {
-      void load().then(showFirstCards);
-      return;
-    }
+    const ready = () => { if (--firstCardsPending === 0) releaseStartup(); };
     for (const card of firstCards()) {
       const wrap = document.getElementById(card.id);
       if (!wrap || wrap.childElementCount) continue;
@@ -195,9 +226,19 @@
       img.decoding = "async";
       img.fetchPriority = "high";
       img.dataset.aibpFirstCard = "true";
+      firstCardsPending++;
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        ready();
+      };
+      img.addEventListener("load", settle, { once: true });
+      img.addEventListener("error", settle, { once: true });
       setSource(img, card.src);
       wrap.appendChild(img);
     }
+    if (!firstCardsPending) releaseStartup();
   }
 
   function takeFirstCard(src) {

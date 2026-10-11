@@ -74,7 +74,7 @@ AIBP 先显示轻量卡图，再在后台低优先级加载高清原图，解码
 
 Android 无法增量更新，请在发布页下载新的 APK 覆盖安装。Docker 部署执行 `docker compose pull && docker compose up -d`。第二屏幕在主控台开启后，通过当前地址的 /ss/ 访问。
 
-**升级到 3.6.1-rc.2 时，Docker 用户需先更新同一版本的 `compose.yaml`（v1 使用 `compose.legacy.yaml`），保留自己的端口和部署配置，再拉取镜像并重建容器。** 新配置将版图原图和预览挂载在 `app/ss/battle-board/`；预发布需在 `.env` 固定 `ATO_VERSION=3.6.1-rc.2`，不会更新 `latest`。请同时重新导入 2026-10-11 生成的新版 atopack；Android 和 Asset Studio 先更新程序，Docker 将资源解压到宿主机 `app/` 下。资料包本身不会更新程序代码。
+**升级到 3.6.1 时，Docker 用户需先更新同一版本的 `compose.yaml`（v1 使用 `compose.legacy.yaml`），保留自己的端口和部署配置，再拉取镜像并重建容器。** 新配置将版图原图和预览挂载在 `app/ss/battle-board/`；正式版会更新 `latest`；需要固定版本时，在 `.env` 设置 `ATO_VERSION=3.6.1`。请同时重新导入 2026-10-11 生成的新版 atopack；Android 和 Asset Studio 先更新程序，Docker 将资源解压到宿主机 `app/` 下。资料包本身不会更新程序代码。
 
 ### 导入资源（.atopack）
 

@@ -29,15 +29,22 @@ foreach ($directories as $relative) {
     $resolvedDirectory = realpath($directory);
     if ($resolvedRoot === false || $resolvedDirectory === false
         || !str_starts_with($resolvedDirectory, $resolvedRoot . DIRECTORY_SEPARATOR)) continue;
-    foreach (new DirectoryIterator($directory) as $entry) {
-        if (!$entry->isFile() || $entry->isLink()) continue;
-        $name = $entry->getFilename();
+    // Enumerating names does not stat every file. In particular, most cards do
+    // not have a preview, so checking a guessed sidecar for each card makes a
+    // Windows filesystem scan unnecessarily expensive.
+    $names = @scandir($directory, SCANDIR_SORT_NONE);
+    if ($names === false) continue;
+    $present = array_fill_keys($names, true);
+    foreach ($names as $name) {
         if (!preg_match('/\.(jpg|jpeg|png)$/iD', $name)) continue;
         if (str_ends_with($name, '.preview.jpg')) continue;
+        $path = $directory . DIRECTORY_SEPARATOR . $name;
+        if (is_link($path) || !is_file($path)) continue;
         $src = 'ps/' . $relative . '/' . $name;
         $images[] = $src;
-        $preview = $entry->getPathname() . '.preview.jpg';
-        if (is_file($preview) && !is_link($preview) && filemtime($preview) >= $entry->getMTime()) {
+        if (!isset($present[$name . '.preview.jpg'])) continue;
+        $preview = $path . '.preview.jpg';
+        if (!is_link($preview) && is_file($preview) && filemtime($preview) >= filemtime($path)) {
             $previews[$src] = $src . '.preview.jpg';
         }
     }

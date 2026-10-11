@@ -276,6 +276,8 @@ function makeHarness(startApostle = "MIDASCORE", options = {}) {
       context.discardBpButton.disabled = !state.BP.pending;
       context.defeatBpButton.disabled = !state.BP.pending;
       context.criticalBpButton.disabled = !state.BP.pending;
+      // The base renderer refreshes deck information as part of the same pass.
+      context.renderDeckInfo();
     },
     renderExtraCards() {
       if (options.keepUnchangedExtraCards) {

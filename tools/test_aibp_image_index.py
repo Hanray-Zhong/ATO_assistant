@@ -68,6 +68,34 @@ class ImageIndexTests(unittest.TestCase):
         self.touch("aibp/ps/TITAN_X/TITAN_X_FEINT_X_010.jpg")
         self.assertEqual(self.inventory(), ["ps/TITAN_X/TITAN_X_FEINT_X_010.jpg"])
 
+    def test_named_directories_and_orphan_previews_are_not_images(self):
+        source = "ps/TITAN_X/TITAN_X.jpg"
+        self.touch("aibp/" + source)
+        (self.root / ("aibp/" + source + ".preview.jpg")).mkdir()
+        (self.root / "aibp/ps/TITAN_X/not-a-card.jpg").mkdir()
+        self.touch("aibp/ps/TITAN_X/orphan.png.preview.jpg")
+        payload = json.loads(subprocess.run([self.php, str(self.endpoint)], check=True,
+                                            capture_output=True, text=True).stdout)
+        self.assertEqual(payload["images"], [source])
+        self.assertEqual(payload["previews"], {})
+
+    def test_symlinked_cards_and_previews_are_ignored(self):
+        import os
+
+        source = "ps/TITAN_X/TITAN_X.jpg"
+        self.touch("aibp/" + source)
+        self.touch("data/private.jpg")
+        private = self.root / "data/private.jpg"
+        try:
+            os.symlink(private, self.root / ("aibp/" + source + ".preview.jpg"))
+            os.symlink(private, self.root / "aibp/ps/TITAN_X/private.jpg")
+        except OSError as error:
+            self.skipTest(f"File symlinks unavailable: {error}")
+        payload = json.loads(subprocess.run([self.php, str(self.endpoint)], check=True,
+                                            capture_output=True, text=True).stdout)
+        self.assertEqual(payload["images"], [source])
+        self.assertEqual(payload["previews"], {})
+
 
 if __name__ == "__main__":
     unittest.main()

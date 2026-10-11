@@ -101,8 +101,12 @@ function hiddenBossHarness(name, mode = "c4") {
     },
     window: {
       AIBP_BOSS_TRAIT_RULES: require('../aibp/boss-trait-rules.js'),
+      AIBP_BOSS_SEARCH: { renderLabel() {} },
       setTimeout() {}, HeliosAssets: { resolve: src => src },
-      HeliosConfig: { extras: () => [fixed] }, BlackbeakCardList: { extraCards: [fixed] },
+      // 这个用例只关心循环 Trait；背面大卡（TR O）另由
+      // tests/aibp-helios-back-card.test.cjs 覆盖，这里给空的配置卡。
+      HeliosConfig: { extras: () => [fixed], traitCandidates: () => [], candidateFor: () => null },
+      BlackbeakCardList: { extraCards: [fixed] },
     },
   });
   loadFunctions(context, ["availableCycleTraitCards", "cycleTraitDefinition", "cycleTraitSrc", "traitCardLabel",

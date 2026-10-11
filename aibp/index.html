@@ -564,22 +564,6 @@
       margin-top: 18px;
     }
 
-    .panel-frame.rotated-panel {
-      width: calc(var(--panel-image-height) * 1.45013);
-      height: var(--panel-image-height);
-    }
-
-    .panel-frame.rotated-panel > .panel-image {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      width: var(--panel-image-height);
-      height: calc(var(--panel-image-height) * 1.45013);
-      max-width: none;
-      transform-origin: top left;
-      transform: rotate(-90deg);
-    }
-
     .panel-state-marker {
       position: absolute;
       left: var(--marker-left, 50%);
@@ -721,6 +705,48 @@
     .extra-grid img.panel-image {
       grid-row: span 2;
       height: calc(var(--side-card-image-height) * 2 + 10px);
+    }
+
+    /* 少数大卡的图是横向卡旋转 90° 存放的（赫利俄斯背面大卡）：外层给最终横向尺寸，
+       内层反向旋转填满。放大图读 img[data-rotate]，所以这里只管列表里的缩略图。 */
+    .rotated-card-thumb {
+      position: relative;
+      container-type: size;
+    }
+
+    .rotated-card-thumb > img {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      max-width: none;
+      transform-origin: top left;
+      transform: rotate(-90deg);
+    }
+
+    .extra-grid > .rotated-card-thumb {
+      grid-row: span 2;
+      height: calc(var(--side-card-image-height) * 2 + 10px);
+      aspect-ratio: 1.45013;
+    }
+
+    .trait-option > .rotated-card-thumb {
+      width: 100%;
+      aspect-ratio: 1.45013;
+    }
+
+    /* 宽取外层的高、高取外层的宽，转 90° 后正好填满。这两条必须比 .extra-grid img /
+       .trait-option img 更具体，否则会被它们的 width/height 覆盖掉。 */
+    .extra-grid > .rotated-card-thumb > img,
+    .trait-option > .rotated-card-thumb > img {
+      width: 100cqh;
+      height: 100cqw;
+      max-height: none;
+      border: 1px solid var(--line);
+    }
+
+    .trait-option > .rotated-card-thumb > img {
+      border-color: rgba(199, 173, 114, 0.18);
+      background: #0b0b0a;
     }
 
     .trait-dialog {
@@ -2712,10 +2738,10 @@
   <script src="battle_los.js?v=20260819-hekaton4-labyrinthauros-start1"></script>
   <script src="battle_map_control.js?v=20260926-titan-x-group1"></script>
   <script src="b4d7e218.js?v=20260926-hidden-ready2"></script>
-  <script src="c9f0a6d3.js?v=20260926-blackbeak1"></script>
+  <script src="c9f0a6d3.js?v=20261011-panel-trait1"></script>
   <script src="5158e31a.js?v=20260926-blackbeak-manual4"></script>
   <script src="7c2e9a40.js?v=20260926-group-trait1"></script>
-  <script src="boss-search.js?v=20260926-titan-x-group2"></script>
+  <script src="boss-search.js?v=20261011-boss-language1"></script>
   <script src="custom_traits.js?v=20260930-custom-trait4-lisu-simhei"></script>
   <script src="boss-levels-data.js?v=20261010-boss-levels1"></script>
   <script src="boss-trait-rules.js?v=20261010-traits-dialog2"></script>
@@ -3445,7 +3471,7 @@
           ? heliosMode().toUpperCase()
           : levelRoman[currentApostleLevel()] || String(currentApostleLevel()),
         panelSrc: currentApostle === "HELIOS"
-          ? window.HeliosConfig.panelFor(heliosMode(), currentApostleLevel())
+          ? window.HeliosConfig.panelFor(heliosMode())
           : currentApostle === "BLACKBEAK" ? window.BlackbeakCardList.panel
           : apostlePanelSrc(currentApostle, apostlePanelIndex(currentApostle)),
         routineSrc: currentApostle === "HELIOS"
@@ -3917,6 +3943,8 @@
     }
 
     function traitImageCandidates(name) {
+      // 隐藏 BOSS 的卡图不在公开图片清单里，由配置直接给出：赫利俄斯的背面大卡就是 TR O。
+      if (name === "HELIOS") return window.HeliosConfig.traitCandidates(heliosMode());
       return indexedAibpCards(name).filter((card) => card.type === "TR");
     }
 
@@ -4601,25 +4629,24 @@
     function renderApostleTitle() {
       const level = currentApostleLevel();
       if (currentApostle === "BLACKBEAK") {
-        title.textContent = "BLACKBEAK · 黑喙";
+        window.AIBP_BOSS_SEARCH.renderLabel(title, currentApostle);
         renderApostleLevelSelectOptions();
         return;
       }
       const special = currentApostle === "HELIOS" ? heliosMode() : "normal";
       if (currentApostle === "HELIOS") ensureHeliosModeOptions();
-      title.textContent = special === "normal"
-        ? `${currentApostle.replaceAll("_", " ")} · ${levelRoman[level] || level}`
-        : `HELIOS · ${window.HeliosConfig.modes[special].label}`;
+      window.AIBP_BOSS_SEARCH.renderLabel(title, currentApostle, special === "normal"
+        ? ` · ${levelRoman[level] || level}`
+        : ` · ${window.HeliosConfig.modes[special].label}`);
       renderMapFactionStatus();
       renderApostleLevelSelectOptions();
       document.querySelectorAll("#nav button[data-name]").forEach((button) => {
         const name = button.dataset.name;
         const navLevel = apostleLevelFor(name);
         const specialMode = name === "HELIOS" ? heliosMode() : "normal";
-        button.textContent = name === "HELIOS" && specialMode !== "normal"
-          ? (window.HeliosConfig.modes[specialMode]?.navLabel
-            || `HELIOS · ${specialMode.toUpperCase()}`)
-          : `${name.replaceAll("_", " ")} · ${levelRoman[navLevel] || navLevel}`;
+        window.AIBP_BOSS_SEARCH.renderLabel(button, name, name === "HELIOS" && specialMode !== "normal"
+          ? ` · ${window.HeliosConfig.modes[specialMode]?.label || specialMode.toUpperCase()}`
+          : ` · ${levelRoman[navLevel] || navLevel}`);
       });
     }
 
@@ -6559,6 +6586,10 @@
       if (card.scope === "custom") return window.CustomTraits.src(card);
       if (card.scope === "common") return commonTraitSrc(card.index, card.ext);
       if (cycleTraitDefinition(card)) return cycleTraitSrc(card);
+      // 赫利俄斯的背面大卡（TR O）由配置直接给出，卡图不在 ps/HELIOS/ 下，拼不出来。
+      const configured = name === "HELIOS"
+        ? window.HeliosConfig.candidateFor(heliosMode(), card) : null;
+      if (configured) return configured.src;
       return traitSrc(name, card.level, card.index, card.ext);
     }
 
@@ -6672,7 +6703,7 @@
       const token = ++traitLoadToken;
       let loaded = 0;
 
-      traitDialogTitle.textContent = `${name.replaceAll("_", " ")} - Trait 选择`;
+      window.AIBP_BOSS_SEARCH.renderLabel(traitDialogTitle, name, " - Trait 选择");
       traitDialogGrid.replaceChildren();
       if (aibpImageIndex === null) showImageIndexFailure(traitDialogGrid);
       const loading = document.createElement("div");
@@ -6746,7 +6777,7 @@
         loadOptionalImage(img, card.src, () => token === traitLoadToken);
       });
 
-      traitImageCandidates(name).forEach(({ level, index, ext, src }) => {
+      traitImageCandidates(name).forEach(({ level, index, ext, src, rotate }) => {
         if (isNietzscheAllForOneLegacyTrait(name, level, index)) return;
         const img = new Image();
         img.onload = () => {
@@ -6781,7 +6812,15 @@
           const caption = document.createElement("span");
           caption.textContent = img.alt;
 
-          option.append(checkbox, img, caption);
+          if (rotate) {
+            img.dataset.rotate = String(rotate);
+            const thumb = document.createElement("div");
+            thumb.className = "rotated-card-thumb";
+            thumb.appendChild(img);
+            option.append(checkbox, thumb, caption);
+          } else {
+            option.append(checkbox, img, caption);
+          }
           if (defaultShown) option.title = "默认显示；取消勾选并保存后从特性区移除";
           traitDialogGrid.appendChild(option);
         };
@@ -6991,12 +7030,13 @@
     }
 
     function reorderExtraGridForLargeCards() {
-      const children = Array.from(extraGrid.children).filter((el) => el.tagName === "IMG" || el.classList.contains("missing"));
+      const children = Array.from(extraGrid.children).filter((el) => el.tagName === "IMG"
+        || el.classList.contains("missing") || el.classList.contains("rotated-card-thumb"));
       if (children.length === 0) return;
       const large = [];
       const small = [];
       children.forEach((el) => {
-        if (el.classList.contains("panel-image")) {
+        if (el.classList.contains("panel-image") || el.classList.contains("rotated-card-thumb")) {
           large.push(el);
         } else {
           small.push(el);
@@ -7013,7 +7053,7 @@
       const reordered = [];
       let smallBuf = [];
       for (const el of orig) {
-        if (el.classList.contains("panel-image")) {
+        if (el.classList.contains("panel-image") || el.classList.contains("rotated-card-thumb")) {
           // 如果缓冲区有奇数张小卡，先把偶数张输出，留1张到大卡后面
           if (smallBuf.length % 2 === 1) {
             const leftover = smallBuf.pop();
@@ -7083,7 +7123,19 @@
             enableOptionalCardBack(img, src);
             scheduleSecondScreenSnapshot();
           }, { once: true });
-          extraGrid.appendChild(img);
+          // 背面大卡的图是横向卡旋转 90° 存放的：外层给最终横向尺寸、内层反向旋转。
+          // 放大图会读 dataset.rotate，所以同一张卡放大后也是正的。
+          const rotated = currentApostle === "HELIOS"
+            ? Number(window.HeliosConfig.candidateFor(heliosMode(), card)?.rotate || 0) : 0;
+          if (!rotated) {
+            extraGrid.appendChild(img);
+          } else {
+            img.dataset.rotate = String(rotated);
+            const thumb = document.createElement("div");
+            thumb.className = "rotated-card-thumb";
+            thumb.appendChild(img);
+            extraGrid.appendChild(thumb);
+          }
         });
         reorderExtraGridForLargeCards();
         return;
@@ -7486,7 +7538,7 @@
       ensurePiles(currentApostle);
       const selected = selectedTokenStacksMap();
 
-      tokenDialogTitle.textContent = `${currentApostle.replaceAll("_", " ")} - 新增 Token 堆`;
+      window.AIBP_BOSS_SEARCH.renderLabel(tokenDialogTitle, currentApostle, " - 新增 Token 堆");
       tokenDialogGrid.replaceChildren();
       tokenFolderHint.textContent = "同类 Token 会自动合并；通用标记仍会新增独立堆。已有堆请点击面板上的 Token 单独增减或清空。";
 
@@ -8083,7 +8135,7 @@
     function renderPanelImage(base, name) {
       let panelSrc;
       if (name === "HELIOS") {
-        panelSrc = window.HeliosConfig.panelFor(heliosMode(), currentApostleLevel());
+        panelSrc = window.HeliosConfig.panelFor(heliosMode());
       } else if (name === "BLACKBEAK") {
         panelSrc = window.BlackbeakCardList.panel;
       } else {
@@ -8092,9 +8144,6 @@
       const img = imageOrMessage(panelSrc, `${name} panel`, "panel-image");
       const frame = document.createElement("div");
       frame.className = "panel-frame";
-      const rotated = name === "HELIOS" && heliosMode() === "normal" && currentApostleLevel() >= 5;
-      frame.classList.toggle("rotated-panel", rotated);
-      if (rotated) img.dataset.rotate = "-90";
 
       const tokenLayer = document.createElement("div");
       tokenLayer.className = "panel-token-layer";
@@ -8242,13 +8291,13 @@
       const hidden = HIDDEN_BOSS[name];
       if (hidden && !hidden.granted()) return;
       if (hidden && !window.HeliosAssets.isReady(hidden.config(), hidden.extraConfigs())) {
-        title.textContent = `${name} · 正在加载资源`;
+        window.AIBP_BOSS_SEARCH.renderLabel(title, name, " · 正在加载资源");
         void window.HeliosAssets.ready(hidden.config(), hidden.extraConfigs()).then(() => {
           if (request === heliosRenderRequest) renderApostle(name);
         }).catch((error) => {
           if (request !== heliosRenderRequest) return;
           const reason = String(error?.message || error);
-          title.textContent = `${name} · 资源加载失败：${reason.slice(0, 140)}`;
+          window.AIBP_BOSS_SEARCH.renderLabel(title, name, ` · 资源加载失败：${reason.slice(0, 140)}`);
           console.error(`[AIBP] ${name} 资源加载失败`, error);
         });
         return;
@@ -8476,7 +8525,7 @@
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.name = name;
-      button.textContent = name.replaceAll("_", " ");
+      window.AIBP_BOSS_SEARCH.renderLabel(button, name);
       if (name === "HELIOS" || name === "BLACKBEAK") button.hidden = true;
       button.addEventListener("click", () => renderApostle(name));
       nav.appendChild(button);
@@ -8490,7 +8539,7 @@
       for (const match of matches) {
         const button = document.createElement("button");
         button.type = "button";
-        button.textContent = `${match.label} · ${match.id.replaceAll("_", " ")}`;
+        window.AIBP_BOSS_SEARCH.renderLabel(button, match.id);
         button.addEventListener("click", () => {
           bossSearchInput.value = "";
           bossSearchResults.replaceChildren();

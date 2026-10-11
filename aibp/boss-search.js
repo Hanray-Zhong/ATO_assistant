@@ -30,6 +30,41 @@
       "Blackbeak", "Black Beak", "Blackbeak Pursuer"],
   ].map(([id, label, ...aliases]) => ({ id, label, aliases: [id.replaceAll("_", " "), label, ...aliases] }));
 
+  // Keep the display names separate from IDs used by saves, cards and URLs.
+  const fanLabels = {
+    HEKATON: "百臂巨人",
+    LABYRINTHAUROS: "迷宫机牛",
+    HERMESIAN_PURSUER: "赫尔墨斯追击者",
+    ALPHA_TEMENOS: "吞域兽",
+    CHIMERA_METASTASIOS: "蠕变奇美拉",
+    CYCLONUS: "独眼巨人",
+    THE_BURDEN: "重担",
+    THE_NIETZSCJEAN: "尼采超人",
+    HYPERTIME_ORACLE: "超时光先知",
+    ICARIAN_HARPY: "伊卡洛斯哈尔皮",
+    SUN_DESCENDANT: "坠落太阳",
+    MIDASCORE: "迈达狮",
+    DEMIDJINN: "半神迪精",
+    THE_BABELIAN_LUNACY: "巴比伦疯塔",
+    DAHAKA: "达哈卡",
+    DRAGON_OF_PHOBOS: "深海惧龙",
+    MEDUKETOS: "须目刻托斯",
+    UR_FLEECE: "乌尔-弗里斯",
+    TITAN_X: "泰坦 X",
+    TITAN_X_GROUP: "天下没有不散的筵席",
+    HELIOS: "赫利俄斯",
+    BLACKBEAK: "黑喙",
+  };
+  const englishLabels = { THE_NIETZSCJEAN: "THE NIETZSCHEAN", TITAN_X_GROUP: "All Good Things", BLACKBEAK: "BLACK BEAK" };
+  for (const entry of entries) {
+    entry.names = {
+      fan: fanLabels[entry.id],
+      official: entry.id === "TITAN_X" ? "泰坦X" : entry.label,
+      en: englishLabels[entry.id] || entry.id.replaceAll("_", " "),
+    };
+    entry.aliases = [...new Set([...entry.aliases, ...Object.values(entry.names)])];
+  }
+
   function normalize(value) {
     return String(value || "").normalize("NFKC").toLocaleLowerCase()
       .replace(/[\s_\-·•'’.,，。:：]+/g, "");
@@ -45,6 +80,26 @@
   const api = {
     entries,
     normalize,
+    renderLabel(element, id, suffix = "") {
+      const names = entries.find((entry) => entry.id === id)?.names;
+      if (!names) { element.textContent = id.replaceAll("_", " ") + suffix; return; }
+      let language = root.ATO_LANGUAGE?.get() || root.document.documentElement.dataset.atoLanguage;
+      if (!language) {
+        try { language = root.localStorage.getItem("ato-term-language-v1"); } catch {}
+      }
+      language = ["fan", "official", "en"].includes(language) ? language : "fan";
+      const variants = Object.entries(names).map(([variant, label]) => {
+        const span = root.document.createElement("span");
+        // The shared language adapter switches variants, including changes
+        // received from the console in another tab. Names are already final.
+        span.dataset.termVariant = variant;
+        span.setAttribute("data-language-ignore", "");
+        span.hidden = variant !== language;
+        span.textContent = label;
+        return span;
+      });
+      element.replaceChildren(...variants, suffix);
+    },
     isSecretQuery(query) { return secretNames.has(normalize(query)); },
     // 命中隐藏 BOSS 时返回对应的 AIBP 模式（"normal" / "blackbeak"），否则 null。
     secretMode(query) {

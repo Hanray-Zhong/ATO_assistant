@@ -104,7 +104,7 @@ def build_docker(version: str) -> Path:
     for relative in (
         "aibp/ps", "assets/exploration-cards", "assets/story-doom-cards",
         "assets/cycle-symbols", "assets/icons", "assets/bgm", "assets/bgm/audio",
-        "hero/assets", "map/images", "map/tokens", "record/assets", "ss/terrain",
+        "hero/assets", "map/images", "map/tokens", "record/assets", "ss/battle-board", "ss/terrain",
         "ss/terrain-cards", "story/images", "story/data",
         "story/assets/cryptic/glyphs", "story/assets/mixed-media/images",
         "story/assets/OO", "technology/images",
@@ -113,13 +113,6 @@ def build_docker(version: str) -> Path:
     # 外层分发包和镜像内的应用都保留许可证；两层分别接受产物审计。
     shutil.copy2(app / "LICENSE", stage / "LICENSE")
     (stage / "data").mkdir()
-    # compose 把这张底图作为单文件挂进容器（公开镜像里没有官方素材）。文件缺失时
-    # Docker 会建一个同名目录顶上，版图背景就废了，所以包里先放一个占位文件；
-    # 本地构建已经带着真图时不覆盖它。
-    battle_board = app / "ss" / "battle-board.jpg"
-    battle_board.parent.mkdir(parents=True, exist_ok=True)
-    if not battle_board.exists():
-        battle_board.touch()
     # 混排映射表同样按单文件挂载进容器（公开镜像里没有私有映射）；缺失时 Docker 会建同名
     # 目录顶掉挂载点，正文里的书籍裁图会全部加载失败，所以这里也先放一个空占位文件。
     mixed_mapping = app / "story" / "assets" / "mixed-media" / "mapping.js"

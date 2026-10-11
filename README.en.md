@@ -70,6 +70,8 @@ The portable build can update itself from inside the program: click "check for u
 
 Android cannot update incrementally; download the new APK from the release page and install it over the old one. For a Docker deployment run `docker compose pull && docker compose up -d`. Once the second screen is switched on in the dashboard, reach it at /ss/ on the current address.
 
+**When upgrading to 3.6.1-rc.2, Docker users must first update `compose.yaml` (or `compose.legacy.yaml` for v1) from the same release tag, preserving custom ports and deployment settings, then pull and recreate the container.** The board and thumbnail now share the `app/ss/battle-board/` directory mount. Set `ATO_VERSION=3.6.1-rc.2` in `.env`; prereleases do not update `latest`. Also reimport the updated atopack generated on 2026-10-11. Update Android and Asset Studio before importing; Docker users extract resources into the host `app/` directory. A resource pack cannot update program code.
+
 ### Importing resources (.atopack)
 
 Image assets do not have to be downloaded one by one, and no asset library installation is needed: get the `.atopack` resource pack, extract it and drag it in.
@@ -107,11 +109,10 @@ Compose pulls the image on startup by default (`ATO_PULL_POLICY=always`); local 
 
 Use [compose.legacy.yaml](tools/packaging/docker/compose.legacy.yaml), which requires `docker-compose` 1.21.0 or a newer v1 release (check with `docker-compose version`). It uses `version: "2.4"` and drops `pull_policy` / `bind.create_host_path`, which v1 does not support, while keeping the same ports, saves and all asset mounts.
 
-Copy that file into the installation directory, next to `data/` and `app/`, and run from there. **Before the first start, `app/ss/battle-board.jpg` must be a file**; if an earlier failed start already created it as a directory, move that directory away first. `touch` does not empty an existing board image.
+Copy that file into the installation directory, next to `data/` and `app/`, and run from there. Put the battle board and its thumbnail in `app/ss/battle-board/`. The directory is mounted as a whole, so no placeholder image is needed.
 
 ~~~bash
-mkdir -p data app/ss
-touch app/ss/battle-board.jpg
+mkdir -p data app/ss/battle-board
 docker-compose -f compose.legacy.yaml pull && docker-compose -f compose.legacy.yaml up -d
 ~~~
 
@@ -127,7 +128,7 @@ When no prebuilt application image exists for another architecture, the one-line
 
 The install script takes the source of the latest tag from GitHub by default. To pin the source version, write `ATO_VERSION=<version from the release page>` in `.env` in the installation directory; the build still needs access to the source and the base images. When using your own image, set `ATO_IMAGE=ato-assistant:local` and `ATO_PULL_POLICY=never` as well; both Compose configurations support `ATO_IMAGE`.
 
-The one-line install uses the current folder by default; `ATO_DIR=/path/to/dir` selects another installation directory. The script creates the mount points and the placeholder board image `app/ss/battle-board.jpg` (overwrite it with the real image and keep the file name), and downloads the [full Docker notes](tools/packaging/docker/README.txt) (Chinese) into the installation directory. BGM can go in `app/assets/bgm/audio/`, and audio flattened into `app/assets/bgm/` by a resource pack works immediately too, with no need to rerun the install script.
+The one-line install uses the current folder by default; `ATO_DIR=/path/to/dir` selects another installation directory. The script creates `app/ss/battle-board/`, copies the old board and matching thumbnail into it without overwriting existing new files, and downloads the [full Docker notes](tools/packaging/docker/README.txt). BGM can go in `app/assets/bgm/audio/`, and audio flattened into `app/assets/bgm/` by a resource pack works immediately too, with no need to rerun the install script.
 
 The local asset directories under data/ and app/ are mounted into the container, and pulling a new image does not delete them.
 
@@ -135,7 +136,7 @@ The local asset directories under data/ and app/ are mounted into the container,
 
 | What to put there | Host location |
 | --- | --- |
-| Battle board image | `app/ss/battle-board.jpg` (single-file mount; the v2 configuration errors when the file is missing, and the compatible v1 configuration needs it created beforehand) |
+| Battle board and thumbnail | `app/ss/battle-board/` (one directory mount, containing `battle-board.jpg` and `battle-board.jpg.preview.jpg`) |
 | Second-screen terrain map / terrain cards | `app/ss/terrain/`, `app/ss/terrain-cards/` |
 | Dashboard background music | `app/assets/bgm/` (audio flattened by a resource pack) or `app/assets/bgm/audio/` (preferred when names collide; see the [BGM notes](assets/bgm/README.md), Chinese) |
 | Dashboard interface icons | `app/assets/icons/` (SVG icons supplied by a resource pack; read-only mount) |

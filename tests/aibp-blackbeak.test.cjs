@@ -184,7 +184,7 @@ test("牌底 AI 抽取与刷新后的弃置不会留下重复卡", () => {
     currentPanelCardTokens: () => [], chimeraName: "CHIMERA_METASTASIOS",
     sameCard: (a, b) => a?.type === b?.type && a?.level === b?.level && a?.index === b?.index,
   };
-  vm.runInNewContext(`${entryFunction("drawAi")}\n${entryFunction("removePendingFromDeck")}\n${entryFunction("discardAiPending")}\ndrawAi();`, context);
+  vm.runInNewContext(`${entryFunction("hasAiCombo")}\n${entryFunction("drawAi")}\n${entryFunction("removePendingFromDeck")}\n${entryFunction("discardAiPending")}\ndrawAi();`, context);
   assert.equal(state.AI.pending.index, bottomIndex);
   state.AI.pending = JSON.parse(JSON.stringify(state.AI.pending));
   vm.runInNewContext("discardAiPending();", context);
@@ -209,7 +209,7 @@ test("旧存档退出自动治疗流程，不改动损伤和晋升进度", () =>
 test("追踪者的卡图不加密：不留 .bin，也不进 catalog", () => {
   const catalog = JSON.parse(fs.readFileSync(path.join(binDir, "catalog.json"), "utf8"));
   const pursuerDir = path.join(aibpDir, "ps", "HERMESIAN_PURSUER");
-  const plain = fs.readdirSync(pursuerDir).filter((name) => /\.jpe?g$/i.test(name));
+  const plain = fs.readdirSync(pursuerDir).filter((name) => /\.jpe?g$/i.test(name) && !name.endsWith(".preview.jpg"));
   assert.equal(plain.length, 82, "追踪者明文卡图应为 82 张");
   const leftovers = [];
   for (const name of plain) {

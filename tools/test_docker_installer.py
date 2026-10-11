@@ -91,7 +91,8 @@ esac
             command = commands / name
             command.write_text(source, encoding="utf-8", newline="\n")
             command.chmod(0o755)
-        for mode in ("fallback", "prebuilt", "custom-local", "custom-fail", "pinned"):
+        for mode in ("fallback", "prebuilt", "custom-local", "custom-fail", "pinned",
+                     "board-migration", "board-existing", "board-mismatch", "legacy-pinned"):
             folder = base / mode
             folder.mkdir()
             log = folder / "commands.log"
@@ -99,9 +100,26 @@ esac
             initial = "UNRELATED_SETTING=keep\n"
             if mode == "custom-local":
                 initial += "ATO_IMAGE=ato-assistant:local\n"
-            if mode == "pinned":
+            if mode in ("pinned", "legacy-pinned"):
                 initial += "ATO_VERSION=1.3.1\n"
             (folder / ".env").write_text(initial, encoding="utf-8")
+            if mode.startswith("board-"):
+                old = folder / "app/ss/battle-board.jpg"
+                old.parent.mkdir(parents=True)
+                old.write_bytes(b"legacy-original")
+                old.with_name(old.name + ".preview.jpg").write_bytes(b"legacy-thumbnail")
+                if mode in ("board-existing", "board-mismatch"):
+                    new = folder / "app/ss/battle-board/battle-board.jpg"
+                    new.parent.mkdir()
+                    new.write_bytes(b"new-original")
+                    if mode == "board-existing":
+                        new.with_name(new.name + ".preview.jpg").write_bytes(b"new-thumbnail")
+            fixture_compose = ROOT / "tools/packaging/docker/compose.yaml"
+            if mode == "legacy-pinned":
+                fixture_compose = folder / "old-compose.yaml"
+                fixture_compose.write_text((ROOT / "tools/packaging/docker/compose.yaml").read_text(encoding="utf-8").replace(
+                    "./app/ss/battle-board:/app/ss/battle-board:ro",
+                    "./app/ss/battle-board.jpg:/app/ss/battle-board.jpg:ro"), encoding="utf-8")
             env = dict(os.environ)
             for key in ("ATO_IMAGE", "ATO_VERSION", "ATO_PULL_POLICY", "ATO_DIR"):
                 env.pop(key, None)
@@ -109,9 +127,9 @@ esac
             # instead of putting a mixed Windows/POSIX value in its environment.
             env.update({
                 "TEST_BIN": shell_path(commands),
-                "TEST_MODE": "prebuilt" if mode == "pinned" else mode,
+                "TEST_MODE": "prebuilt" if mode in ("pinned", "legacy-pinned") or mode.startswith("board-") else mode,
                 "TEST_LOG": shell_path(log), "TEST_STATE": shell_path(state),
-                "FIXTURE_COMPOSE": shell_path(ROOT / "tools/packaging/docker/compose.yaml"),
+                "FIXTURE_COMPOSE": shell_path(fixture_compose),
                 "FIXTURE_README": shell_path(ROOT / "tools/packaging/docker/README.txt"),
                 "FIXTURE_DOCKERFILE": shell_path(ROOT / "tools/packaging/docker/Dockerfile"),
                 "TEST_INSTALLER": shell_path(ROOT / "tools/install-docker.sh"),
@@ -143,6 +161,24 @@ esac
             if mode == "pinned":
                 if "/v1.3.1/tools/packaging/docker/compose.yaml" not in calls or "started ghcr.io/banard2049-cpu/ato_assistant:1.3.1" not in calls:
                     failures.append("固定版本的配置与镜像没有选择同一个源码标签")
+            board = folder / "app/ss/battle-board/battle-board.jpg"
+            thumbnail = board.with_name(board.name + ".preview.jpg")
+            if mode == "board-migration":
+                if board.read_bytes() != b"legacy-original" or thumbnail.read_bytes() != b"legacy-thumbnail":
+                    failures.append("旧版图及匹配缩略图未复制到新的目录挂载点")
+                if not (folder / "app/ss/battle-board.jpg").is_file():
+                    failures.append("迁移不应删除仍可供旧版本使用的原图")
+            if mode in ("board-existing", "board-mismatch"):
+                if board.read_bytes() != b"new-original":
+                    failures.append("版图迁移覆盖了新目录里的原图")
+                if mode == "board-existing" and thumbnail.read_bytes() != b"new-thumbnail":
+                    failures.append("版图迁移覆盖了新目录里的缩略图")
+                if mode == "board-mismatch" and thumbnail.exists():
+                    failures.append("旧缩略图不能迁移到不同的新版图上")
+            if mode == "legacy-pinned" and not (folder / "app/ss/battle-board.jpg").is_file():
+                failures.append("固定旧版本时仍需准备其单文件挂载占位文件")
+            if mode == "prebuilt" and (board.exists() or (folder / "app/ss/battle-board.jpg").exists()):
+                failures.append("新版目录挂载不应创建图片占位文件")
 
     docker = shutil.which("docker")
     if docker:

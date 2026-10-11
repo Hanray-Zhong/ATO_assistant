@@ -31,7 +31,7 @@ def allowed_target(target: str) -> bool:
     )
 
 
-def collect(root: Path | None, include_scans: bool = True) -> list[tuple[str, Path]]:
+def collect(root: Path | None, include_scans: bool = True, *, require_scans: bool = True) -> list[tuple[str, Path]]:
     """Collect the official files that exist under ``root``.
 
     ``include_scans=False`` keeps only the official story data and skips the
@@ -40,6 +40,9 @@ def collect(root: Path | None, include_scans: bool = True) -> list[tuple[str, Pa
     redistributed, while the official text alone still lets the story page fall
     back to 官方正文.  A scan that is missing locally is only an export error
     when the scans are actually being packed.
+    Installation uses ``require_scans=False`` to install only available scans;
+    text-only packs intentionally contain references to unbundled scan pages.
+    Export keeps the strict default, and invalid target paths always fail.
     """
     if root is None or not (root / DATA).is_file():
         return []
@@ -57,8 +60,12 @@ def collect(root: Path | None, include_scans: bool = True) -> list[tuple[str, Pa
                 src = (entry.get("officialScan") or {}).get("src")
                 if src:
                     target = "story/" + src.removeprefix("./")
-                    if not allowed_target(target) or not (root / target).is_file():
+                    if not allowed_target(target):
                         raise ValueError(f"官方截图缺失或路径无效：{target}")
+                    if not (root / target).is_file():
+                        if require_scans:
+                            raise ValueError(f"官方截图缺失或路径无效：{target}")
+                        continue
                     targets.add(target)
     return [(target, root / target) for target in sorted(targets)]
 

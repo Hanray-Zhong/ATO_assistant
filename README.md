@@ -55,6 +55,10 @@ story/images/
 technology/images/
 ~~~
 
+AIBP 先显示轻量卡图，再在后台低优先级加载高清原图，解码完成后自动替换；后台加载失败时保留轻量图。点击放大始终读取原图。新导出的资料包会自动附带 `*.preview.jpg`；旧资料包仍能使用原图。在源码目录自行添加或替换卡图后，可运行 `python tools/generate_aibp_previews.py` 生成或更新轻量图（需要 Pillow），不会修改原图。图片清单会在后台更新，通常无需等待清单才能显示已缓存的卡牌。
+
+首屏的面板、随命卡和标志卡会在主程序依赖脚本之前创建，主程序初始化后复用已显示的图片。决战版图原图 `battle-board.jpg` 与缩略图 `battle-board.jpg.preview.jpg` 都放在 `ss/battle-board/`。AIBP 固定使用最长边 1024 像素的缩略图，不加载高清版图；第二屏继续使用原图。上述生成命令和资料包导出会生成缩略图；生成命令也能将旧路径 `ss/battle-board.jpg` 复制到新目录。缺少缩略图时，AIBP 仍显示格线及地形操作，可运行生成命令补齐底图。
+
 已有 `.atopack` 资料包时见下节「导入资源」：解压后把内容拖进便携包，图片就会落到上面这些目录。
 
 ### 更新版本
@@ -69,6 +73,8 @@ technology/images/
 - 不想用它也可以照旧：解压到新的目录并保留旧目录中的 `data/` 和本地图片目录。
 
 Android 无法增量更新，请在发布页下载新的 APK 覆盖安装。Docker 部署执行 `docker compose pull && docker compose up -d`。第二屏幕在主控台开启后，通过当前地址的 /ss/ 访问。
+
+**升级到 3.6.1-rc.2 时，Docker 用户需先更新同一版本的 `compose.yaml`（v1 使用 `compose.legacy.yaml`），保留自己的端口和部署配置，再拉取镜像并重建容器。** 新配置将版图原图和预览挂载在 `app/ss/battle-board/`；预发布需在 `.env` 固定 `ATO_VERSION=3.6.1-rc.2`，不会更新 `latest`。请同时重新导入 2026-10-11 生成的新版 atopack；Android 和 Asset Studio 先更新程序，Docker 将资源解压到宿主机 `app/` 下。资料包本身不会更新程序代码。
 
 ### 导入资源（.atopack）
 
@@ -107,11 +113,10 @@ Compose 默认在启动时拉取镜像（`ATO_PULL_POLICY=always`）；本地构
 
 使用 [compose.legacy.yaml](tools/packaging/docker/compose.legacy.yaml)，要求 `docker-compose` 1.21.0 或更新的 v1 版本（可用 `docker-compose version` 查看）。它使用 `version: "2.4"`，移除了 v1 不支持的 `pull_policy` / `bind.create_host_path`，保留相同的端口、存档和全部素材挂载。
 
-把这份文件复制到安装目录，与 `data/`、`app/` 同级，然后在该目录执行。**首次启动前，`app/ss/battle-board.jpg` 必须是文件**；若之前失败的启动已把它建成目录，先将该目录移走再执行。`touch` 不会清空已有的底图。
+把这份文件复制到安装目录，与 `data/`、`app/` 同级，然后在该目录执行。决战版图原图和缩略图放在 `app/ss/battle-board/`，使用目录挂载，无需预先创建图片占位文件。
 
 ~~~bash
-mkdir -p data app/ss
-touch app/ss/battle-board.jpg
+mkdir -p data app/ss/battle-board
 docker-compose -f compose.legacy.yaml pull && docker-compose -f compose.legacy.yaml up -d
 ~~~
 
@@ -127,7 +132,7 @@ docker-compose -f compose.legacy.yaml pull && docker-compose -f compose.legacy.y
 
 安装脚本默认从 GitHub 取最新 tag 的源码。固定源码版本时可在安装目录的 `.env` 里写 `ATO_VERSION=<发布页上的版本号>`；构建仍需能访问源码与基础镜像。使用自建镜像时同时设置 `ATO_IMAGE=ato-assistant:local` 和 `ATO_PULL_POLICY=never`；两份 Compose 配置都支持 `ATO_IMAGE`。
 
-一键安装默认使用执行命令时的当前文件夹；也可以通过 `ATO_DIR=/path/to/dir` 指定安装目录。脚本会建好挂载点和决战版图底图占位文件 `app/ss/battle-board.jpg`（把真图覆盖上去，文件名不要改），并下载 [Docker 完整说明](tools/packaging/docker/README.txt) 到安装目录。BGM 可放在 `app/assets/bgm/audio/`，资料包平铺到 `app/assets/bgm/` 的音频同样实时可用，无需重跑安装脚本。
+一键安装默认使用执行命令时的当前文件夹；也可以通过 `ATO_DIR=/path/to/dir` 指定安装目录。脚本会建好挂载目录 `app/ss/battle-board/`，将旧路径的版图及匹配缩略图复制进来（保留旧文件，不覆盖新目录里的文件），并下载 [Docker 完整说明](tools/packaging/docker/README.txt) 到安装目录。BGM 可放在 `app/assets/bgm/audio/`，资料包平铺到 `app/assets/bgm/` 的音频同样实时可用，无需重跑安装脚本。
 
 data/ 和 app/ 下的本地素材目录会挂载到容器，拉取新镜像不会删除它们。
 
@@ -135,7 +140,7 @@ data/ 和 app/ 下的本地素材目录会挂载到容器，拉取新镜像不�
 
 | 放什么 | 宿主机位置 |
 | --- | --- |
-| 决战版图底图 | `app/ss/battle-board.jpg`（单文件挂载；v2 配置缺文件会报错，v1 兼容配置需提前创建文件） |
+| 决战版图原图与缩略图 | `app/ss/battle-board/`（同一目录挂载，内含 `battle-board.jpg` 与 `battle-board.jpg.preview.jpg`） |
 | 第二屏地形图 / 地形卡 | `app/ss/terrain/`、`app/ss/terrain-cards/` |
 | 主控台背景音乐 | `app/assets/bgm/`（资料包平铺音频）或 `app/assets/bgm/audio/`（同名时优先使用；文件名见 [bgm 说明](assets/bgm/README.md)） |
 | 主控台界面图标 | `app/assets/icons/`（资料包提供的 SVG 图标；只读挂载） |

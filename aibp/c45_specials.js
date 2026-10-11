@@ -1580,13 +1580,15 @@
   };
 
   renderExtraCards = function () {
-    base.renderExtraCards();
+    if (base.renderExtraCards() === false) return;
     cleanMisclassifiedExtras();
     if (currentApostle === "DEMIDJINN") {
       const activeWish = piles.DEMIDJINN?.special?.demidjinn?.globalWish?.active;
       if (activeWish) {
         const image = document.createElement("img");
-        image.src = cardSrc(activeWish);
+        image.decoding = "async";
+        if (window.AibpCardImages) window.AibpCardImages.setSource(image, cardSrc(activeWish));
+        else image.src = cardSrc(activeWish);
         image.alt = globalWishName(activeWish);
         image.className = "c45-active-global-wish-trait";
         image.dataset.demidjinnGlobalWish = "active";
@@ -1596,7 +1598,7 @@
     window.setTimeout(cleanMisclassifiedExtras, 400);
   };
 
-  drawAi = function (remember = true) {
+  drawAi = function (remember = true, comboFollowup = false) {
     ensurePiles(currentApostle);
     if (currentApostle === "TITAN_X" && titanXGroup()) { drawTitanXGroupAi(); return; }
     if (currentApostle === "DAHAKA") {
@@ -1611,7 +1613,7 @@
       drawAiSpecial({ fromBottom: true });
       return;
     }
-    base.drawAi(remember);
+    base.drawAi(remember, comboFollowup);
   };
 
   drawBp = function () {

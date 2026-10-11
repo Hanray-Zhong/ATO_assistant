@@ -1730,7 +1730,7 @@ def fixed_catalog_payload() -> dict[str, Any]:
         id=make_id("common", "决战版图", "战斗版图", "battle-board", "决战版图"),
         cycle="common", module="决战版图", subgroup="战斗版图",
         name="决战版图（仅实际战斗区域）", number="battle-board", sort_order=54_000,
-        faces={"front": "ss/battle-board.jpg"},
+        faces={"front": "ss/battle-board/battle-board.jpg"},
     ))
     for order, (name, front, back) in enumerate(BATTLE_TERRAIN_PIECES):
         faces = {"front": f"ss/terrain/{front}"}
@@ -1883,6 +1883,7 @@ def fixed_catalog_payload() -> dict[str, Any]:
         "+mixed-media-crops+drop-c2-c5-battle-boards+drop-c5-supplement-pages"
         "+drop-story-battle-boards+c5-inward-86-90-user-images"
         "+boss-level-backs+custom-trait-png-20261010"
+        "+battle-board-resource-directory-20261011"
     )
     return payload
 

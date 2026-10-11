@@ -5,7 +5,7 @@
 #       --image-quality-keep-file asset-studio/pack-shrink-keep.txt
 
 # 决战板图：铺满屏幕看的大图，保原样
-ss/battle-board.jpg
+ss/battle-board/battle-board.jpg
 
 # 使徒完整面板（aibp/ps/<敌人>/<敌人>.jpg）：20 张
 aibp/ps/ALPHA_TEMENOS/ALPHA_TEMENOS.jpg

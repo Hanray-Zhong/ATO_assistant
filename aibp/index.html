@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AIBP Apostle Viewer</title>
+  <script src="card-images.js?v=20261011-first-paint3"></script>
   <style>
     .bp-combined-counter {
       display: flex;
@@ -1161,6 +1162,12 @@
       display: none;
     }
 
+    html[data-ato-language="en"] #nietzscheStateButton {
+      grid-column: 1 / -1 !important;
+      white-space: normal !important;
+      overflow-wrap: anywhere;
+    }
+
     #drawAiButton,
     #drawBpButton {
       min-width: 104px;
@@ -2019,6 +2026,11 @@
       opacity: 0.95;
     }
 
+    html[data-ato-language="en"] .panel-token-item.auto-level-danger-per-hit::after,
+    html[data-ato-language="en"] .image-zoom-card-token.auto-level-danger-per-hit::after {
+      content: "per hit";
+    }
+
     .image-zoom-card-token.auto-level-danger-per-hit::after {
       content: "每命中";
       position: absolute;
@@ -2156,6 +2168,29 @@
       display: grid;
     }
 
+    .image-zoom-action-stack:has(#imageZoomAiComboActions.show) {
+      width: min(240px, 84vw);
+    }
+
+    .ai-combo-break-notice {
+      display: grid;
+      grid-column: 1 / -1;
+      gap: 8px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .ai-combo-break-notice[hidden] { display: none; }
+    .ai-combo-track { font-size: 13px; color: var(--accent-strong, var(--gold)); }
+    .ai-combo-break-label { font-size: 16px; font-weight: 700; }
+    .ai-combo-break-detail { display: flex; flex-wrap: wrap; gap: 6px; font-size: 13px; }
+    .ai-combo-break-detail span { padding: 3px 8px; border: 1px solid var(--line); }
+    .ai-combo-break-notice.unbreakable { border-color: #b4342c; }
+    .ai-combo-break-notice.unbreakable .ai-combo-break-label { color: #b4342c; }
+
     .image-zoom-actions button {
       min-height: 42px;
       padding: 8px 10px;
@@ -2263,6 +2298,10 @@
         justify-self: center;
       }
 
+      .image-zoom-action-stack:has(#imageZoomAiComboActions.show) {
+        width: min(96vw, 360px);
+      }
+
       .image-zoom-actions {
         grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
       }
@@ -2324,9 +2363,8 @@
 
   </style>
   <link rel="stylesheet" href="c45_specials.css?v=20260926-titan-group-layout1">
-  <link rel="stylesheet" href="battle_map_control.css?v=20260819-c5-light1">
+  <link rel="stylesheet" href="battle_map_control.css?v=20261011-thumbnail1">
   <link rel="stylesheet" href="../api/cycle-theme.css">
-  <script src="../story/data/english-source-data.js?v=20261011-english4"></script>
   <script src="../assets/theme.js?v=20261001" defer></script>
   <link rel="stylesheet" href="editorial.css?v=20261010-traits-dialog2">
 </head>
@@ -2394,6 +2432,7 @@
             <div class="image-wrap" id="signatureWrap"></div>
           </div>
         </section>
+        <script>window.AibpCardImages?.showFirstCards();</script>
 
         <section class="section extra-section">
           <div class="image-wrap">
@@ -2417,6 +2456,8 @@
                 <button type="button" id="drawAiButton">抽取 AI</button>
                 <button type="button" id="undoAiButton" disabled>撤销 AI</button>
                 <button type="button" id="confirmAiButton" disabled>弃置</button>
+                <button type="button" id="breakAiComboButton" hidden disabled>打断连招</button>
+                <button type="button" id="continueAiComboButton" hidden disabled>继续连招</button>
                 <button type="button" id="defeatAiAsBpButton" hidden disabled>击败</button>
                 <button type="button" id="criticalAiAsBpButton" hidden disabled>暴击</button>
                 <button type="button" id="promoteAiSingleButton">AI 晋升</button>
@@ -2500,7 +2541,7 @@
         <div class="battle-map-workspace">
           <div class="battle-map-main">
             <div class="battle-map-board" data-battle-map-board>
-              <img class="battle-map-board-image" src="../ss/battle-board.jpg" alt="决战版图">
+              <img class="battle-map-board-image" src="../ss/battle-board/battle-board.jpg.preview.jpg" alt="决战版图" decoding="async" fetchpriority="low" onerror="this.hidden = true">
               <div class="battle-map-terrain-layer" data-battle-map-terrain-layer></div>
               <div class="battle-map-grid"></div>
               <div class="battle-map-los-layer" data-battle-map-los-layer aria-hidden="true"></div>
@@ -2702,6 +2743,12 @@
       <div class="image-zoom-notice" id="imageZoomNotice"></div>
       <div id="imageZoomCombinedNotice" hidden role="status"></div>
       <div class="image-zoom-action-stack">
+      <div class="image-zoom-actions" id="imageZoomAiComboActions" aria-label="AI 连招处置">
+        <div class="ai-combo-break-notice" id="imageZoomAiComboNotice" role="status" hidden></div>
+        <button type="button" data-ai-combo-action="break">打断连招</button>
+        <button type="button" data-ai-combo-action="continue">继续连招</button>
+        <button type="button" data-ai-combo-action="finish" hidden>结算完成</button>
+      </div>
       <div class="image-zoom-actions" id="imageZoomBpActions" aria-label="BP 处置">
         <button type="button" data-bp-zoom-action="discard">弃置</button>
         <button type="button" data-bp-zoom-action="defeat">击败</button>
@@ -2998,9 +3045,9 @@
     const nietzscheStateKey = "aibp-nietzsche-state-v2";
     const nietzscheDefaultStateIndex = 2;
     const nietzscheStates = [
-      { label: "火焰", short: "火", left: "54.3%", top: "54.2%" },
-      { label: "神浆", short: "浆", left: "58.8%", top: "68.1%" },
-      { label: "巨剑", short: "剑", left: "49.4%", top: "67.6%" }
+      { label: "火焰", comboEnglish: "Fire", short: "火", left: "54.3%", top: "54.2%", breakWeapons: ["矛（Spear）", "剑（Sword）", "拳套（Cestus）"], breakLockedAt: 10 },
+      { label: "神浆", comboEnglish: "Ambrosia", short: "浆", left: "58.8%", top: "68.1%", breakWeapons: ["棍棒（Club）", "斧（Axe）", "弓（Bow）"] },
+      { label: "巨剑", comboEnglish: "Sword", short: "剑", left: "49.4%", top: "67.6%", breakWeapons: ["匕首（Knife）", "盾牌（Shield）", "鞭（Whip）", "板剑（Slabsword）"], breakLockedAt: 6 }
     ];
     const normalBpViews = bpViews;
     const hermesianAiViews = [...aiViews, "闪粉牌组", "闪粉弃牌"];
@@ -3008,9 +3055,9 @@
     const cyclonusName = "CYCLONUS";
     const cyclonusStateKey = "aibp-cyclonus-state-v1";
     const cyclonusStates = [
-      { label: "Mauls", short: "M", left: "86.4%", top: "8.7%" },
-      { label: "Chain", short: "C", left: "81.7%", top: "21.6%" },
-      { label: "Body", short: "B", left: "90.6%", top: "22.0%" }
+      { label: "Mauls", comboLabel: "球锤", comboEnglish: "Mauls", short: "M", left: "86.4%", top: "8.7%", breakWeapons: ["匕首（Knife）", "盾牌（Shield）", "板剑（Slabsword）", "鞭（Whip）"] },
+      { label: "Chain", comboLabel: "锁链", comboEnglish: "Chain", short: "C", left: "81.7%", top: "21.6%", breakWeapons: ["棍棒（Club）", "斧（Axe）", "弓（Bow）"] },
+      { label: "Body", comboLabel: "身躯", comboEnglish: "Body", short: "B", left: "90.6%", top: "22.0%", breakWeapons: ["矛（Spear）", "剑（Sword）", "拳套（Cestus）"] }
     ];
     // 大迷宫轨道（迷宫机牛 / 吞域兽卡片上那一圈 4 格）：指示物开局放在最上方一格，每次结算
     // 大迷宫X 后顺时针移一格。坐标照面板美术逐格量出：位置是 --marker-left/--marker-top 的
@@ -3159,6 +3206,8 @@
     const scryAiButton = document.getElementById("scryAiButton");
     const undoAiButton = document.getElementById("undoAiButton");
     const confirmAiButton = document.getElementById("confirmAiButton");
+    const breakAiComboButton = document.getElementById("breakAiComboButton");
+    const continueAiComboButton = document.getElementById("continueAiComboButton");
     const defeatAiAsBpButton = document.getElementById("defeatAiAsBpButton");
     const criticalAiAsBpButton = document.getElementById("criticalAiAsBpButton");
     const promoteAiSingleButton = document.getElementById("promoteAiSingleButton");
@@ -3196,6 +3245,8 @@
     const imageZoomNotice = document.getElementById("imageZoomNotice");
     const imageZoomClose = document.getElementById("imageZoomClose");
     const imageZoomBpActions = document.getElementById("imageZoomBpActions");
+    const imageZoomAiComboActions = document.getElementById("imageZoomAiComboActions");
+    const imageZoomAiComboNotice = document.getElementById("imageZoomAiComboNotice");
     const imageZoomFlipActions = document.getElementById("imageZoomFlipActions");
     const imageZoomFlipButton = document.getElementById("imageZoomFlipButton");
     const imageZoomPanelActions = document.getElementById("imageZoomPanelActions");
@@ -3260,14 +3311,17 @@
     const maxUndoSteps = 30;
     let pendingUndoEntry = null;
     let zoomCloseAction = null;
+    let activeAiComboZoom = null;
     let activeMoveContext = null;
     let activeTokenContext = null;
     let activeScry = null;
     let traitLoadToken = 0;
     const optionalImageChecks = new Map();
     const optionalImageCheckQueue = [];
-    let aibpImageIndex;
+    let aibpImageIndex = window.AibpCardImages?.inventory
+      ? new Set(window.AibpCardImages.inventory.images) : undefined;
     let aibpImageIndexPromise = null;
+    let aibpImageIndexRevision = 0;
 
     if (viewDeckOrderToggle) {
       viewDeckOrderToggle.checked = false;
@@ -3454,7 +3508,7 @@
             return card ? publicTraitSnapshot(currentApostle, card) : null;
           }
           return {
-            src: image.getAttribute("src") || "",
+            src: image.dataset.fullSrc || image.getAttribute("src") || "",
             label: image.alt || "Trait / 特殊卡",
             large: image.classList.contains("panel-image"),
           };
@@ -3822,12 +3876,14 @@
     }
 
     function imageOrMessage(src, alt, className = "") {
-      const img = document.createElement("img");
+      const resolved = window.HeliosAssets.resolve(src);
+      const early = window.AibpCardImages?.takeFirstCard(resolved);
+      const img = early || document.createElement("img");
       img.decoding = "async";
       img.fetchPriority = "high";
       img.alt = alt;
       img.className = className;
-      img.onerror = () => {
+      const onerror = () => {
         const fallback = document.createElement("div");
         fallback.className = "missing";
         fallback.textContent = `图片加载失败：${src}`;
@@ -3844,12 +3900,27 @@
         fallback.appendChild(retry);
         img.replaceWith(fallback);
       };
-      img.src = window.HeliosAssets.resolve(src);
+      if (early) {
+        // Keep the already painted pixels and any in-flight original upgrade.
+        img._cardImageError = onerror;
+        if (img.complete && img.naturalWidth === 0) img.onerror();
+      } else {
+        img.onerror = onerror;
+        if (window.AibpCardImages) window.AibpCardImages.setSource(img, resolved);
+        else img.src = resolved;
+      }
       return img;
     }
 
     function loadAibpImageIndex() {
       if (aibpImageIndexPromise) return aibpImageIndexPromise;
+      if (window.AibpCardImages) {
+        aibpImageIndexPromise = window.AibpCardImages.load(aibpImageIndex === undefined).then((payload) => {
+          aibpImageIndex = payload ? new Set(payload.images) : null;
+          flushOptionalImageChecks();
+        });
+        return aibpImageIndexPromise;
+      }
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), 10000);
       aibpImageIndexPromise = fetch("../api/aibp-image-index.php", { signal: controller.signal, cache: "no-store" })
@@ -3961,7 +4032,11 @@
       img.fetchPriority = "low";
       void resolveOptionalImagePresence(src, isNeeded).then((exists) => {
         if (!isNeeded()) return;
-        if (exists) img.src = window.HeliosAssets.resolve(src);
+        if (exists) {
+          const resolved = window.HeliosAssets.resolve(src);
+          if (window.AibpCardImages) window.AibpCardImages.setSource(img, resolved);
+          else img.src = resolved;
+        }
         else img.onerror?.();
       });
     }
@@ -4070,6 +4145,9 @@
         lastPendingType: "",
         aiExhaustedBonusIndex: 0
       };
+      if (["THE_NIETZSCJEAN", "CYCLONUS"].includes(currentApostle)) {
+        result.AI.comboTrackIndex = currentApostle === nietzscheName ? nietzscheDefaultStateIndex : 0;
+      }
       if (currentApostle === "HELIOS" || currentApostle === "BLACKBEAK") {
         // 两套隐藏 BOSS 都由配置直接给出卡牌对象（自带 src/backSrc）。
         const config = currentApostle === "HELIOS" ? window.HeliosConfig : window.BlackbeakConfig;
@@ -4101,6 +4179,13 @@
         piles[name].AI.deck ||= [];
         piles[name].AI.discard ||= [];
         piles[name].AI.pending ||= null;
+        if (["THE_NIETZSCJEAN", "CYCLONUS"].includes(name)) {
+          const ai = piles[name].AI;
+          if (!Number.isInteger(ai.comboTrackIndex) || ai.comboTrackIndex < 0 || ai.comboTrackIndex >= 3) {
+            ai.comboTrackIndex = name === nietzscheName ? nietzscheStateIndex : cyclonusStateIndex;
+          }
+          ai.comboFollowup = Boolean(ai.pending && ai.comboFollowup);
+        }
         piles[name].AI.supply ||= { I: [], II: supplyPile("AI", "II"), III: supplyPile("AI", "III") };
         piles[name].AI.supply.I ||= [];
         piles[name].AI.supply.II ||= [];
@@ -4501,6 +4586,7 @@
 
     async function refreshRecordApostleLevels() {
       try {
+        const previousLevel = currentApostleLevel();
         const response = await fetch(recordStorageUrl, { cache: "no-store" });
         if (!response.ok) return;
         const payload = await response.json();
@@ -4514,7 +4600,8 @@
           ])
         );
         renderApostleTitle();
-        applyCurrentApostleLevelBonuses();
+        const bonusesChanged = applyCurrentApostleLevelBonuses();
+        if (previousLevel === currentApostleLevel() && !bonusesChanged) return;
         renderCriticalMassSlot();
         renderExtraCards();
         renderAibpCards();
@@ -5037,6 +5124,9 @@
     }
 
     function renderCardsIntoGrid(grid, cards, emptyText, type = "", view = "") {
+      if (window.AibpCardImages?.unchanged(grid, [currentApostle, type, view, emptyText,
+        aibpImageIndexRevision, cards.map((card) => [card, cardAlt(card),
+          window.AibpCardImages.sourceFor(cardSrc(card))])])) return;
       grid.replaceChildren();
 
       if (cards.length === 0) {
@@ -6400,6 +6490,14 @@
       const aiPending = piles[currentApostle].AI.pending;
       const bpPending = piles[currentApostle].BP.pending;
       const returnedBp = returnedBpPreviewCard();
+      const combo = hasAiCombo();
+      const comboFollowup = combo && Boolean(piles[currentApostle].AI.comboFollowup);
+      const comboBreak = currentAiComboBreakInfo();
+      breakAiComboButton.hidden = continueAiComboButton.hidden = !combo || comboFollowup;
+      breakAiComboButton.disabled = !aiPending || !comboBreak?.canBreak;
+      continueAiComboButton.disabled = !aiPending;
+      confirmAiButton.hidden = combo && !comboFollowup;
+      confirmAiButton.textContent = combo ? "结算完成" : "弃置";
       confirmAiButton.disabled = !aiPending;
       discardBpButton.disabled = !bpPending;
       defeatBpButton.disabled = !bpPending;
@@ -6407,24 +6505,36 @@
       renderCombinedBpControl();
       drawBpButton.disabled = Boolean(bpPending);
       drawBpButton.textContent = bpPending ? "已抽取 BP" : returnedBp ? "重抽此 BP" : "抽取 BP";
-      drawAiButton.disabled = false;
+      drawAiButton.disabled = combo && Boolean(aiPending);
 
       if (!aiPending) {
         aiDrawPreview.classList.remove("has-card");
         aiDrawPreview.textContent = "未抽取 AI";
+        delete aiDrawPreview._aibpRenderSignature;
       } else {
         aiDrawPreview.classList.add("has-card");
-        aiDrawPreview.replaceChildren(imageOrMessage(cardSrc(aiPending), "抽取的 AI"));
+        if (!window.AibpCardImages?.unchanged(aiDrawPreview,
+          [currentApostle, aiPending, window.AibpCardImages.sourceFor(cardSrc(aiPending))])) {
+          aiDrawPreview.replaceChildren(imageOrMessage(cardSrc(aiPending), "抽取的 AI"));
+        }
       }
 
       if (!bpPending && !returnedBp) {
         bpDrawPreview.classList.remove("has-card");
         bpDrawPreview.textContent = "未抽取 BP";
+        delete bpDrawPreview._aibpRenderSignature;
       } else {
         bpDrawPreview.classList.add("has-card");
-        bpDrawPreview.replaceChildren(imageOrMessage(
-          cardSrc(bpPending || returnedBp), bpPending ? "抽取的 BP" : "已放回牌堆顶的 BP"
-        ));
+        if (!window.AibpCardImages?.unchanged(bpDrawPreview,
+          [currentApostle, bpPending, returnedBp, window.AibpCardImages.sourceFor(cardSrc(bpPending || returnedBp))])) {
+          bpDrawPreview.replaceChildren(imageOrMessage(
+            cardSrc(bpPending || returnedBp), bpPending ? "抽取的 BP" : "已放回牌堆顶的 BP"
+          ));
+        }
+      }
+      if (activeAiComboZoom) {
+        setImageZoomAiComboActions(activeAiComboZoom.apostle === currentApostle
+          && sameCard(activeAiComboZoom.card, aiPending));
       }
     }
 
@@ -7096,6 +7206,10 @@
       if (!hiddenBossImagesReady()) return;
       ensurePiles(currentApostle);
       const hiddenExtraCardSrcs = hiddenExtraCardKeySet();
+      if (window.AibpCardImages?.unchanged(extraGrid, [currentApostle, currentApostleLevel(),
+        aibpImageIndexRevision, heliosMode(), piles[currentApostle].traits,
+        piles[currentApostle].hiddenTraits, [...hiddenExtraCardSrcs], piles[currentApostle].special,
+        piles[currentApostle].traits.map((card) => window.AibpCardImages.sourceFor(traitCardSrc(currentApostle, card)))])) return false;
       window.AIBP_BOSS_TRAIT_RULES?.renderSummary(document, currentApostle, currentApostleLevel(),
         window.AIBP_BOSS_LEVEL_DATA, piles[currentApostle]);
       // 隐藏 BOSS 的模式/专属卡和玩家选择的循环 Trait 一起显示。
@@ -7215,7 +7329,10 @@
         extraGrid.appendChild(img);
         void resolveOptionalImagePresence(src, () => img.isConnected).then((exists) => {
           if (!img.isConnected) return;
-          if (exists) img.src = src;
+          if (exists) {
+            if (window.AibpCardImages) window.AibpCardImages.setSource(img, src);
+            else img.src = src;
+          }
           else img.onerror();
         });
       });
@@ -7300,6 +7417,25 @@
       return currentApostle === cyclonusName;
     }
 
+    function hasAiCombo(name = currentApostle) {
+      return name === "THE_NIETZSCJEAN" || name === "CYCLONUS";
+    }
+
+    function currentAiComboBreakInfo() {
+      if (!hasAiCombo()) return null;
+      const state = currentPanelState();
+      if (!state) return null;
+      const damage = isNietzsche() ? currentBpDamageSummary().total : 0;
+      const locked = Number.isFinite(state.breakLockedAt) && damage >= state.breakLockedAt;
+      return {
+        label: state.comboLabel || state.label,
+        englishLabel: state.comboEnglish,
+        weapons: locked ? [] : state.breakWeapons,
+        canBreak: !locked,
+        threshold: state.breakLockedAt
+      };
+    }
+
     function hasPanelState() {
       return Boolean(currentPanelState());
     }
@@ -7316,10 +7452,10 @@
         return chimeraPhaseStates[piles[currentApostle]?.chimeraPhase] || null;
       }
       if (isCyclonus()) {
-        return cyclonusStates[cyclonusStateIndex];
+        return cyclonusStates[piles[currentApostle]?.AI?.comboTrackIndex ?? cyclonusStateIndex];
       }
       if (isNietzsche()) {
-        return nietzscheStates[nietzscheStateIndex];
+        return nietzscheStates[piles[currentApostle]?.AI?.comboTrackIndex ?? nietzscheStateIndex];
       }
       return null;
     }
@@ -7366,8 +7502,11 @@
       if (!isNietzsche()) return;
 
       const total = damageTotal == null ? currentBpDamageSummary().total : Number(damageTotal || 0);
-      if (total >= 6) appendNietzscheBreakLock(frame, nietzscheStates[2], "巨剑");
-      if (total >= 10) appendNietzscheBreakLock(frame, nietzscheStates[0], "火焰");
+      nietzscheStates.forEach((state) => {
+        if (Number.isFinite(state.breakLockedAt) && total >= state.breakLockedAt) {
+          appendNietzscheBreakLock(frame, state, state.label);
+        }
+      });
     }
 
 
@@ -7594,6 +7733,41 @@
       });
     }
 
+
+    function setImageZoomAiComboActions(show = false) {
+      const ai = piles[currentApostle]?.AI;
+      show = Boolean(show && hasAiCombo() && ai?.pending);
+      activeAiComboZoom = show ? { apostle: currentApostle, card: ai.pending } : null;
+      imageZoomAiComboActions.classList.toggle("show", show);
+      const comboBreak = show ? currentAiComboBreakInfo() : null;
+      imageZoomAiComboNotice.hidden = !show;
+      imageZoomAiComboNotice.replaceChildren();
+      imageZoomAiComboNotice.classList.toggle("unbreakable", Boolean(show && !ai.comboFollowup && !comboBreak?.canBreak));
+      if (show && comboBreak) {
+        const title = document.createElement("div");
+        title.className = "ai-combo-track";
+        title.textContent = ai.comboFollowup ? "连招第二张 AI" : `${comboBreak.label}连招（${comboBreak.englishLabel} Combo）`;
+        const label = document.createElement("div");
+        label.className = "ai-combo-break-label";
+        label.textContent = ai.comboFollowup ? "不再触发连招"
+          : comboBreak.canBreak ? "可打断连招的武器" : "无法打断连招";
+        const detail = document.createElement("div");
+        detail.className = "ai-combo-break-detail";
+        if (ai.comboFollowup) detail.textContent = "结算完成后弃置。";
+        else if (!comboBreak.canBreak) detail.textContent = `损伤已达到 ${comboBreak.threshold}+。`;
+        else detail.append(...comboBreak.weapons.map((weapon) => {
+          const chip = document.createElement("span");
+          chip.textContent = weapon;
+          return chip;
+        }));
+        imageZoomAiComboNotice.append(title, label, detail);
+      }
+      imageZoomAiComboActions.querySelectorAll("[data-ai-combo-action]").forEach((button) => {
+        const finish = button.dataset.aiComboAction === "finish";
+        button.hidden = finish !== Boolean(ai?.comboFollowup);
+        button.disabled = !show || (button.dataset.aiComboAction === "break" && !comboBreak?.canBreak);
+      });
+    }
 
     function setImageZoomBpActions(show = false) {
       imageZoomBpActions.classList.toggle("show", Boolean(show));
@@ -7842,6 +8016,7 @@
       imageZoomNotice.parentElement.classList.toggle("has-notice", noticeItems.length > 0);
       imageZoomNotice.parentElement.classList.toggle("has-side-notices", sideNotices);
       setImageZoomCardTokens(options.cardTokens || []);
+      setImageZoomAiComboActions(Boolean(options.aiComboActions));
       setImageZoomBpActions(Boolean(options.bpActions));
       const combinedNotice = options.bpActions ? combinedBpNotice() : "";
       imageZoomCombinedNotice.textContent = combinedNotice;
@@ -7873,6 +8048,7 @@
       imageZoomNotice.parentElement.classList.remove("has-notice");
       imageZoomNotice.parentElement.classList.remove("has-side-notices");
       setImageZoomCardTokens([]);
+      setImageZoomAiComboActions(false);
       setImageZoomBpActions(false);
       setImageZoomFlipActions(null);
       setImageZoomMoveActions(null);
@@ -7899,7 +8075,8 @@
       if (img.classList.contains("panel-image") && img.closest("#panelWrap") && openPanelZoom()) return;
       const isBpImage = Boolean(img.closest("#bpGrid, #bpDrawPreview"));
       const cardTokenType = zoomCardTokenTypeFromImage(img);
-      openImageZoom(img.currentSrc || img.src, img.alt, null, {
+      openImageZoom(img.dataset.fullSrc || img.currentSrc || img.src, img.alt, null, {
+        aiComboActions: hasAiCombo() && Boolean(img.closest("#aiDrawPreview")),
         rotation: Number(img.dataset.rotate || 0),
         flipContext: flipContextFromImage(img),
         moveContext: moveContextFromImage(img),
@@ -8117,7 +8294,10 @@
     function applyPanelCardIndex() {
       const img = panelWrap.querySelector("img.panel-image");
       if (img) {
-        img.src = window.HeliosAssets.resolve(apostlePanelSrc(currentApostle, apostlePanelIndex(currentApostle)));
+        const src = window.HeliosAssets.resolve(apostlePanelSrc(currentApostle, apostlePanelIndex(currentApostle)));
+        if (window.AibpCardImages) window.AibpCardImages.setSource(img, src);
+        else img.src = src;
+        try { localStorage.setItem("aibp-first-panel-v1", JSON.stringify({ name: currentApostle, src })); } catch {}
       } else {
         renderPanelImage(`ps/${currentApostle}`, currentApostle);
         return;
@@ -8142,6 +8322,7 @@
         panelSrc = apostlePanelSrc(name, apostlePanelIndex(name));
       }
       const img = imageOrMessage(panelSrc, `${name} panel`, "panel-image");
+      try { localStorage.setItem("aibp-first-panel-v1", JSON.stringify({ name, src: panelSrc })); } catch {}
       const frame = document.createElement("div");
       frame.className = "panel-frame";
 
@@ -8229,11 +8410,17 @@
         return;
       }
       if (isCyclonus()) {
-        cyclonusStateIndex = (cyclonusStateIndex + cyclonusStates.length - 1) % cyclonusStates.length;
+        const index = piles[currentApostle]?.AI?.comboTrackIndex ?? cyclonusStateIndex;
+        cyclonusStateIndex = (index + cyclonusStates.length - 1) % cyclonusStates.length;
         localStorage.setItem(cyclonusStateKey, String(cyclonusStateIndex));
       } else {
-        nietzscheStateIndex = (nietzscheStateIndex + 1) % nietzscheStates.length;
+        const index = piles[currentApostle]?.AI?.comboTrackIndex ?? nietzscheStateIndex;
+        nietzscheStateIndex = (index + 1) % nietzscheStates.length;
         localStorage.setItem(nietzscheStateKey, String(nietzscheStateIndex));
+      }
+      if (piles[currentApostle]?.AI) {
+        piles[currentApostle].AI.comboTrackIndex = isCyclonus() ? cyclonusStateIndex : nietzscheStateIndex;
+        savePiles();
       }
       const marker = panelWrap.querySelector(".panel-state-marker");
       updateNietzscheStateUi(marker);
@@ -8334,7 +8521,7 @@
       requestAnimationFrame(updateViewerScale);
     }
 
-    function drawAi(remember = true) {
+    function drawAi(remember = true, comboFollowup = false) {
       ensurePiles(currentApostle);
       const ai = piles[currentApostle].AI;
       if (ai.pending) return;
@@ -8357,17 +8544,19 @@
         return;
       }
       ai.pending = currentApostle === "BLACKBEAK" ? ai.deck.at(-1) : ai.deck[0];
+      if (hasAiCombo()) ai.comboFollowup = Boolean(comboFollowup);
       piles[currentApostle].lastPendingType = "AI";
       savePiles();
       renderAibpCards();
       const drawnCard = ai.pending;
       const drawnApostle = currentApostle;
-      openImageZoom(cardSrc(drawnCard), drawnApostle === "BLACKBEAK" ? "抽取的 AI（牌堆底部）" : "抽取的 AI", () => {
+      openImageZoom(cardSrc(drawnCard), drawnApostle === "BLACKBEAK" ? "抽取的 AI（牌堆底部）" : "抽取的 AI", hasAiCombo() ? null : () => {
         if (currentApostle !== drawnApostle) return;
         const pending = piles[currentApostle]?.AI?.pending;
         if (!pending || pending.level !== drawnCard.level || pending.index !== drawnCard.index) return;
         discardAiPending(false);
       }, {
+        aiComboActions: hasAiCombo(),
         noticeLayout: "sides",
         cardTokens: currentPanelCardTokens("AI"),
         noticeImages: drawnApostle === chimeraName
@@ -8496,12 +8685,28 @@
       }
       ai.discard.push(removePendingFromDeck("AI"));
       ai.pending = null;
+      delete ai.comboFollowup;
       savePiles();
       renderAibpCards();
     }
 
+    function resolveAiCombo(mode) {
+      ensurePiles(currentApostle);
+      const ai = piles[currentApostle].AI;
+      if (!hasAiCombo() || !ai.pending || ai.comboFollowup || !["break", "continue"].includes(mode)) return;
+      if (mode === "break" && !currentAiComboBreakInfo()?.canBreak) return;
+      rememberUndo(currentApostle, "AI");
+      ai.discard.push(removePendingFromDeck("AI"));
+      ai.pending = null;
+      delete ai.comboFollowup;
+      cycleNietzscheState();
+      if (mode === "continue") drawAi(false, true);
+      else renderAibpCards();
+    }
+
     function confirmAiDiscard() {
-      discardAiPending(true);
+      if (hasAiCombo() && !piles[currentApostle]?.AI?.comboFollowup) resolveAiCombo("break");
+      else discardAiPending(true);
     }
 
     function updateViewerScale() {
@@ -8739,7 +8944,8 @@
 
       const sourceImg = document.getElementById(button.dataset.sourceId || "");
       if (sourceImg) {
-        sourceImg.src = nextSrc;
+        if (window.AibpCardImages) window.AibpCardImages.setSource(sourceImg, nextSrc);
+        else sourceImg.src = nextSrc;
         sourceImg.dataset.face = nextFace;
         sourceImg.alt = sourceImg.alt.replace(/\s+(front|back)$/, "") + ` ${nextFace}`;
       }
@@ -8756,6 +8962,17 @@
       const action = button.dataset.bpZoomAction;
       resolveBp(action);
       closeImageZoom();
+    });
+    imageZoomAiComboActions.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const button = event.target.closest("[data-ai-combo-action]");
+      const context = activeAiComboZoom;
+      if (!button || button.disabled || !context || context.apostle !== currentApostle
+        || !sameCard(context.card, piles[currentApostle]?.AI?.pending)) return;
+      const action = button.dataset.aiComboAction;
+      closeImageZoom();
+      if (action === "finish") confirmAiDiscard();
+      else resolveAiCombo(action);
     });
     imageZoomMoveActions.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -8845,7 +9062,8 @@
       renderPanelTokens();
       battleMapControl?.render();
     });
-    battleMapControl = window.BattleMapControl.create({
+    function initializeBattleMap() {
+      battleMapControl = window.BattleMapControl.create({
       root: document.getElementById("battleMapControl"),
       assetBase: "../ss/terrain",
       cardAssetBase: "../ss/terrain-cards",
@@ -8863,7 +9081,9 @@
       },
       // 视线参数不进存档（不属于 battleMap），但要立刻推给第二屏。
       onLosChange: () => scheduleSecondScreenSnapshot(),
-    });
+      });
+      battleMapControl.render();
+    }
 
     sidebarToggle.addEventListener("click", () => {
       const collapsed = document.body.classList.toggle("sidebar-collapsed");
@@ -8924,6 +9144,8 @@
     });
     undoAiButton.addEventListener("click", () => undoLastAibp("AI"));
     confirmAiButton.addEventListener("click", confirmAiDiscard);
+    breakAiComboButton.addEventListener("click", () => resolveAiCombo("break"));
+    continueAiComboButton.addEventListener("click", () => resolveAiCombo("continue"));
     promoteAiSingleButton.addEventListener("click", () => promoteSinglePile("AI"));
     addOracleAiXButton.addEventListener("click", addOracleAiX);
     drawFlareButton.addEventListener("click", drawFlare);
@@ -8971,23 +9193,36 @@
       }
     });
     window.addEventListener("focus", refreshSecondScreenModeToggle);
+    window.AibpCardImages?.subscribe((payload) => {
+      aibpImageIndex = new Set(payload.images);
+      aibpImageIndexRevision += 1;
+      flushOptionalImageChecks();
+      optionalImageChecks.clear();
+      renderExtraCards();
+      renderAibpCards();
+      if (traitDialog.open) renderTraitCandidates();
+    });
     loadSavedPiles();
     void loadAibpImageIndex();
     renderApostle(currentApostle);
     restoreScrySession();
-    refreshRecordApostleLevels();
-    refreshSecondScreenModeToggle();
-    void readAibpSection().catch(() => {});
+    requestAnimationFrame(() => window.setTimeout(() => {
+      initializeBattleMap();
+      refreshRecordApostleLevels();
+      refreshSecondScreenModeToggle();
+      void readAibpSection().catch(() => {});
+    }, 0));
   </script>
-  <script src="ps/other/resouce/bp_resource_map.js"></script>
-  <script src="ps/other/resouce/bp_resource_map_c1_c3.js"></script>
-  <script src="ps/other/resouce/bp_resource_map_c4_c5.js?v=20260730e"></script>
-  <script src="c45_specials.js?v=20261010-feint-resume-deathblow1"></script>
-  <script src="bp_loot_calculator_addon.js?v=20261010-loot-number-buttons1"></script>
-  <script src="../assets/ato-terms.js?v=20260919-chimera"></script>
-  <script src="../assets/english-terms.js?v=20261011-english4"></script>
-  <script src="../assets/english-ui.js?v=20261011-english4"></script>
-  <script src="../assets/english-language.js?v=20261011-english4"></script>
-  <script src="../assets/term-language.js?v=20261011-english4"></script>
+  <script src="ps/other/resouce/bp_resource_map.js" defer></script>
+  <script src="ps/other/resouce/bp_resource_map_c1_c3.js" defer></script>
+  <script src="ps/other/resouce/bp_resource_map_c4_c5.js?v=20260730e" defer></script>
+  <script src="c45_specials.js?v=20261011-ai-combo1" defer></script>
+  <script src="bp_loot_calculator_addon.js?v=20261010-loot-number-buttons1" defer></script>
+  <script src="../story/data/english-source-data.js?v=20261011-english4" defer></script>
+  <script src="../assets/ato-terms.js?v=20261011-ai-combo-terms1" defer></script>
+  <script src="../assets/english-terms.js?v=20261011-english4" defer></script>
+  <script src="../assets/english-ui.js?v=20261011-aibp-state1" defer></script>
+  <script src="../assets/english-language.js?v=20261011-aibp-state1" defer></script>
+  <script src="../assets/term-language.js?v=20261011-english4" defer></script>
 </body>
 </html>

@@ -11,6 +11,111 @@ for (const file of ['assets/ato-terms.js', 'assets/english-terms.js', 'assets/en
 }
 const english = sandbox.window.ATO_ENGLISH;
 
+test('AIBP panel state buttons, marker titles, and break locks are fully English', () => {
+  const html = read('aibp/index.html').replace(/\r\n/g, '\n');
+  const scope = '#nietzscheStateButton, .panel-state-marker, .nietzsche-break-lock, #imageZoomNotice';
+  const states = name => vm.runInNewContext('(' + html.match(new RegExp('^    const ' + name + ' = ([^]*?^    [}\\]]);', 'm'))[1] + ')');
+  const update = html.match(/^    function updateNietzscheStateUi\([^]*?^    }/m)[0];
+  const marker = { classList: { toggle() {} }, style: { setProperty() {} }, dataset: {} };
+  const button = { classList: { toggle() {} } };
+  const ctx = vm.createContext({
+    currentPanelState: () => ctx.state, nietzscheStateButton: button,
+    isChimera: () => false, isLabyrinthTrackApostle: () => false,
+    hasManualPanelState: () => true, hasPanelState: () => true,
+  });
+  vm.runInContext(update, ctx);
+  for (const [state, original] of [
+    ...Array.from(states('nietzscheStates'), state => [state, state.comboEnglish]),
+    ...Array.from(states('cyclonusStates'), state => [state, state.comboEnglish]),
+    ...Object.values(states('chimeraPhaseStates')).map((state, i) => [state, ['Corrosive', 'Gelatinous', 'Supersolid'][i]]),
+  ]) {
+    ctx.state = state;
+    ctx.updateNietzscheStateUi(marker);
+    assert.equal(english.translate(button.textContent, [scope]), `Switch state: ${original}`);
+    assert.equal(english.translate(marker.title, [scope]), `${original}; click for next state`);
+  }
+  assert.equal(english.translate('损伤已达到阈值：不能打破巨剑', [scope]), 'Wound threshold reached: cannot break Sword combo');
+  assert.equal(english.translate('巨剑', []), '巨剑', 'panel-specific Sword must not rename unrelated terms');
+});
+
+test('all Labyrinth track positions localize whole names, counters, and hover hints', () => {
+  const html = read('aibp/index.html').replace(/\r\n/g, '\n');
+  const block = html.slice(html.indexOf('    const labyrinthTrackApostles = new Set('), html.indexOf('    const panelRatio ='));
+  const ctx = vm.createContext({
+    labyrinthaurosName: 'LABYRINTHAUROS', currentApostle: 'LABYRINTHAUROS',
+    localStorage: { getItem: () => null },
+  });
+  // Only the track declarations precede the following panel sizing constants.
+  const end = block.indexOf('    labyrinthTrackApostles.forEach');
+  const declarations = block.slice(0, end);
+  vm.runInContext(declarations, ctx);
+  for (const boss of ['LABYRINTHAUROS', 'ALPHA_TEMENOS']) {
+    for (let i = 0; i < 4; i++) {
+      vm.runInContext(`labyrinthTrackIndexes['${boss}'] = ${i}`, ctx);
+      const state = ctx.labyrinthTrackState(boss);
+      assert.equal(english.translate(state.label), `Labyrinth ${state.short}`);
+      assert.equal(english.translate(state.buttonLabel), `Labyrinth marker: ${state.short} (${i + 1}/4)`);
+      assert.equal(english.translate(state.hint), `Labyrinth ${state.short}: Labyrinth track space ${i + 1}/4; click to advance clockwise`);
+    }
+  }
+});
+
+test('AIBP board hover hints, sight descriptions, wish controls and token badges stay English', () => {
+  const board = read('aibp/battle_map_control.js');
+  const labels = [...board.matchAll(/(?:parts|notes)\.push\("([^"\n]*[\u3400-\u9fff][^"\n]*)"\)/g)]
+    .map(match => match[1]);
+  for (const source of [...labels,
+    'Fortified City（双击选中，再次双击取消）', 'Labyrinth - 点击查看大图',
+    'THE NIETZSCJEAN 2×2 · 移速 8 · 攻击距离 1 · 射程 9 格 · 朝左 · 盲区 右方 2 格',
+    'MIDASCORE 3×3 · 移速 ∞ · 攻击距离 1 · 射程 全图 · 朝左 · 盲区 右方 3 格 · 总是有视线',
+    '黄箭头=朝向，斜纹格=盲区（在朝向的反向），永远不算有视线。',
+    '黄箭头=朝向；该始徒没有盲区。',
+    '高地（手动开启）：无视其他遮蔽地形与红线；云层地形（蓝框）例外，仍然遮挡。',
+    '高地（泰坦位于高地板块，已自动勾选）：无视全部遮蔽地形与红线，视线不被地形阻挡。',
+    '全场愿望', '抽取全场愿望', '重置愿望牌堆', '首个泰坦轮不启用全场愿望',
+    '第 2 个泰坦轮 · 牌堆 3 · 弃牌 1', '每命中', '（每命中）',
+    '点击放置 1 个疼痛增量通用标记', '点击放置 1 个以怨还怨通用标记',
+    '减少', '增加', '万事皆休 · 三台泰坦 X',
+  ]) assert.doesNotMatch(english.translate(source), /[\u3400-\u9fff]/, source);
+  assert.match(read('aibp/index.html'), /html\[data-ato-language="en"\] \.panel-token-item\.auto-level-danger-per-hit::after,[^]*?content: "per hit"/);
+});
+
+test('official combo terms use printed Chinese names while fan terms keep bilingual captions', () => {
+  const { createEngine } = require('./helpers/term-language.cjs');
+  const engine = createEngine(sandbox.window.ATO_TERMS);
+  const scope = ['#imageZoomAiComboActions'];
+  for (const [source, official] of [
+    ['巨剑连招（Sword Combo）', '刀剑连击'], ['火焰连招（Fire Combo）', '火焰连击'],
+    ['神浆连招（Ambrosia Combo）', '神浆连击'], ['球锤连招（Mauls Combo）', '铁槌连击'],
+    ['锁链连招（Chain Combo）', '链条连击'], ['身躯连招（Body Combo）', '躯体连击'],
+    ['匕首（Knife）', '小刀'], ['盾牌（Shield）', '盾'], ['鞭（Whip）', '鞭'],
+    ['板剑（Slabsword）', '平板剑'], ['矛（Spear）', '矛'], ['剑（Sword）', '剑'],
+    ['拳套（Cestus）', '拳套'], ['棍棒（Club）', '棍棒'], ['斧（Axe）', '斧'], ['弓（Bow）', '弓'],
+    ['可打断连招的武器', '可中断连击的武器'], ['无法打断连招', '无法中断连击'],
+    ['连招第二张 AI', '连击第二张 AI'], ['不再触发连招', '不再触发连击'],
+  ]) {
+    assert.equal(engine.translate(source, scope), official);
+    engine.setOfficial(false);
+    assert.equal(engine.translate(source, scope), source);
+    engine.setOfficial(true);
+  }
+  assert.equal(engine.translate('打断连招', ['#imageZoomAiComboActions, #breakAiComboButton']), '中断连击');
+  assert.equal(engine.translate('继续连招', ['#imageZoomAiComboActions, #continueAiComboButton']), '继续连击');
+});
+
+test('bilingual combo notices switch to English without duplicate captions', () => {
+  for (const [chinese, original] of [
+    ['巨剑', 'Sword'], ['火焰', 'Fire'], ['神浆', 'Ambrosia'],
+    ['球锤', 'Mauls'], ['锁链', 'Chain'], ['身躯', 'Body'],
+  ]) assert.equal(english.translate(`${chinese}连招（${original} Combo）`), `${original} combo`);
+  for (const [chinese, original] of [
+    ['匕首', 'Knife'], ['盾牌', 'Shield'], ['鞭', 'Whip'], ['板剑', 'Slabsword'],
+    ['矛', 'Spear'], ['剑', 'Sword'], ['拳套', 'Cestus'], ['棍棒', 'Club'], ['斧', 'Axe'], ['弓', 'Bow'],
+  ]) assert.equal(english.translate(`${chinese}（${original}）`), original);
+  assert.equal(english.translate('损伤已达到 6+。'), 'Wounds have reached 6+.');
+  assert.equal(english.translate('无法打断连招'), 'Combo cannot be broken');
+});
+
 test('English uses attested originals, including names whose Chinese literal meaning differs', () => {
   assert.equal(english.translate('独眼巨人', english.scopes), 'Cyclonus');
   assert.equal(english.translate('独眼巨人'), 'Cyclopes');

@@ -96,6 +96,7 @@ from app.official_assets import resolve as resolve_official_asset  # noqa: E402
 from app.official_resources import DATA as OFFICIAL_STORY_DATA  # noqa: E402
 from app.official_resources import collect as collect_official  # noqa: E402
 from app.storybook_format import format_storybook  # noqa: E402
+from app.card_previews import BOARD_SOURCE, LEGACY_BOARD_SOURCE, add_to_archive as add_card_preview, canonical_board_path, is_preview_source  # noqa: E402
 from app.story_extras import (  # noqa: E402
     ENTITY_INDEX_JSON_TARGET,
     ENTITY_INDEX_JS_TARGET,
@@ -276,6 +277,7 @@ def safe_relative(relative: str, label: str = "目标路径") -> str:
 def installable_target(relative: str) -> str:
     """清单目标必须和安装目标一样严格，否则读取方会整包拒收。"""
     relative = safe_relative(relative, "素材目标路径")
+    relative = canonical_board_path(relative)
     pure = PurePosixPath(relative)
     suffix = pure.suffix.lower()
     if is_mixed_media_target(relative):
@@ -520,6 +522,8 @@ def plan_assets(
                 reporter.warn(f"{error}（条目 {item.id} / {face}）")
                 continue
             project_file = ato_root / Path(*PurePosixPath(member).parts)
+            if member == BOARD_SOURCE and not project_file.is_file():
+                project_file = ato_root / LEGACY_BOARD_SOURCE
             source: Path | None = None
             origin = ""
             expected: str | None = None
@@ -782,7 +786,7 @@ def build_manifest(
                 "sort_order": item.sort_order,
                 "capture_required": item.capture_required,
                 "source_version": str(catalog_source.get("catalog_version") or ""),
-                "faces": item.faces,
+                "faces": {face: canonical_board_path(target) for face, target in item.faces.items()},
             }
             for item in items
         ],
@@ -1233,6 +1237,12 @@ def write_pack(
             ato_root=ato_root,
             official_scans=official_scans,
         )
+        # Generate from the actual packed bytes, including official overrides and
+        # optional re-encoding, so zoom and preview always show the same edition.
+        preview_entries = []
+        for member in sorted({asset.member for asset, _digest in written if is_preview_source(asset.member)}):
+            add_card_preview(archive, member, archive.read(member), preview_entries)
+        manifest["cardPreviewFiles"] = preview_entries
         manifest["build"]["edition"] = edition
         manifest["build"]["kind"] = "official-resource-pack" if edition == "official" else "fan-resource-pack"
         # 记下本次图片编码口径：下次拿这个包做增量底包时，只有口径一致才允许复用旧字节
@@ -1326,6 +1336,7 @@ def verify_partial(
             ("iconFiles", "界面图标"),
             ("crypticFiles", "密语字形"),
             ("mixedMediaFiles", "混合媒体"),
+            ("cardPreviewFiles", "AIBP 预览图"),
         ):
             for item in manifest.get(section, []) or []:
                 target = str(item.get("target") or "")
@@ -1856,7 +1867,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--image-quality-keep", action="append", default=[],
-        help="重编码豁免通配（可重复/逗号分隔），命中的图原样进包，例如 ss/battle-board.jpg",
+        help="重编码豁免通配（可重复/逗号分隔），命中的图原样进包，例如 ss/battle-board/battle-board.jpg",
     )
     parser.add_argument(
         "--image-quality-keep-file", type=Path,

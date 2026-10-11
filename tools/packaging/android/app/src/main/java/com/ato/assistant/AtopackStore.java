@@ -66,6 +66,15 @@ final class AtopackStore {
   // 二进制素材（不是图片）只允许落在这个前缀下，与 tools/build_fan_pack.py、
   // app/installer.py 的同名规则保持一致。
   private static final String BINARY_TARGET_PREFIX = "aibp/ps/other/";
+  private static final String BOARD_SOURCE = "ss/battle-board/battle-board.jpg";
+  private static final String LEGACY_BOARD_SOURCE = "ss/battle-board.jpg";
+
+  private static String canonicalBoardPath(String path) {
+    if (LEGACY_BOARD_SOURCE.equals(path) || (LEGACY_BOARD_SOURCE + ".preview.jpg").equals(path)) {
+      return BOARD_SOURCE + path.substring(LEGACY_BOARD_SOURCE.length());
+    }
+    return path;
+  }
   // 页面从 web/index.html 加载，而 aibp/ 里的脚本按 ps/... 取资源；补全一层前缀：
   // 先按清单里的完整路径找，再按“页面视角的少一层路径”找。
   private static final String[] OPEN_PATH_PREFIXES = {"", "aibp/"};
@@ -111,7 +120,7 @@ final class AtopackStore {
   OpenedResource open(String relative) {
     String normalized;
     try {
-      normalized = safePath(relative, "资源路径");
+      normalized = canonicalBoardPath(safePath(relative, "资源路径"));
     } catch (IOException ignored) {
       return null;
     }
@@ -131,6 +140,7 @@ final class AtopackStore {
 
   JSONObject aibpImageIndex() throws IOException, JSONException {
     Set<String> images = new TreeSet<>();
+    Set<String> bundledPreviews = new HashSet<>();
     // The catalog lists possible resources; only installed blobs count as present.
     for (Map.Entry<String, ResourceEntry> item : resources.entrySet()) {
       String target = item.getKey();
@@ -151,6 +161,10 @@ final class AtopackStore {
       if (names == null) continue;
       for (String name : names) {
         String target = "aibp/ps/" + directory + "/" + name;
+        if (name.endsWith(".preview.jpg")) {
+          bundledPreviews.add(target.substring("aibp/".length()));
+          continue;
+        }
         if (!isAibpImage(target)) continue;
         try (InputStream input = context.getAssets().open("web/" + target)) {
           images.add(target.substring("aibp/".length()));
@@ -159,11 +173,22 @@ final class AtopackStore {
         }
       }
     }
-    return new JSONObject().put("ok", true).put("version", 1).put("images", new JSONArray(images));
+    JSONObject previews = new JSONObject();
+    for (String src : images) {
+      String target = "aibp/" + src;
+      ResourceEntry preview = resources.get(target + ".preview.jpg");
+      if (preview != null && new File(blobs, preview.sha256).isFile()) {
+        previews.put(src, src + ".preview.jpg");
+      } else if (!resources.containsKey(target) && bundledPreviews.contains(src + ".preview.jpg")) {
+        previews.put(src, src + ".preview.jpg");
+      }
+    }
+    return new JSONObject().put("ok", true).put("version", 2).put("images", new JSONArray(images)).put("previews", previews);
   }
 
   private static boolean isAibpImage(String target) {
-    return target.matches("aibp/ps/(?:[A-Z][A-Z0-9_]+|other|other/trait)/[^/]+\\.(?i:jpg|jpeg|png)");
+    return !target.endsWith(".preview.jpg")
+        && target.matches("aibp/ps/(?:[A-Z][A-Z0-9_]+|other|other/trait)/[^/]+\\.(?i:jpg|jpeg|png)");
   }
 
   // Export canvases must decode raster bytes from a data URL rather than use
@@ -257,7 +282,7 @@ final class AtopackStore {
         String member;
         String sha256;
         try {
-          if (declaredTarget.isEmpty() || !target.equals(safePath(declaredTarget, "资源目标路径"))) {
+          if (declaredTarget.isEmpty() || !target.equals(canonicalBoardPath(safePath(declaredTarget, "资源目标路径")))) {
             stats.skipped++;
             continue;
           }
@@ -268,8 +293,45 @@ final class AtopackStore {
         if (entry == null || entry.isDirectory()) { stats.skipped++; continue; }
         try { installBlob(archive, entry, sha256, asset, MAX_MEMBER_BYTES, transaction); }
         catch (InvalidPackEntry invalid) { stats.skipped++; continue; }
+        // An older resource pack can replace a face without supplying its new
+        // preview. Discard the old preview rather than showing the wrong face.
+        next.remove(target + ".preview.jpg");
         next.put(target, new ResourceEntry(sha256, safeMime(asset.optString("mimeType"), target)));
         importedAssets++;
+      }
+
+      JSONArray cardPreviews = manifest.optJSONArray("cardPreviewFiles");
+      if (cardPreviews != null) {
+        if (cardPreviews.length() > MAX_ASSETS) throw new IOException("卡牌预览图数量超过限制");
+        for (int index = 0; index < cardPreviews.length(); index++) {
+          JSONObject resource = cardPreviews.optJSONObject(index);
+          if (resource == null) { stats.skipped++; continue; }
+          String source;
+          String target;
+          String member;
+          String sha256;
+          try {
+            source = canonicalBoardPath(safePath(resource.optString("source"), "卡牌原图路径"));
+            target = canonicalBoardPath(safePath(resource.optString("target"), "卡牌预览路径"));
+            member = safePath(resource.optString("member"), "卡牌预览成员路径");
+            sha256 = validSha256(resource.optString("sha256"));
+          } catch (IOException invalid) { stats.skipped++; continue; }
+          ResourceEntry original = next.get(source);
+          if (!(isAibpImage(source) || BOARD_SOURCE.equals(source)) || !target.equals(source + ".preview.jpg")
+              || !target.equals(canonicalBoardPath(member)) || original == null
+              || !original.sha256.equals(resource.optString("sourceSha256"))) {
+            stats.skipped++;
+            continue;
+          }
+          ZipArchiveEntry entry = findEntry(archive, member, resource);
+          if (entry == null || entry.isDirectory() || entry.getSize() > 2L * 1024 * 1024) {
+            stats.skipped++;
+            continue;
+          }
+          try { installBlob(archive, entry, sha256, resource, 2L * 1024 * 1024, transaction); }
+          catch (InvalidPackEntry invalid) { stats.skipped++; continue; }
+          next.put(target, new ResourceEntry(sha256, "image/jpeg"));
+        }
       }
 
       JSONObject incomingStories = manifest.optJSONObject("stories");
@@ -743,6 +805,11 @@ final class AtopackStore {
     } catch (Exception ignored) {
       // A damaged index disables overrides; the bundled application remains usable.
     }
+    // Reuse already imported blobs after upgrading the board's resource path.
+    for (String oldPath : new String[]{LEGACY_BOARD_SOURCE, LEGACY_BOARD_SOURCE + ".preview.jpg"}) {
+      ResourceEntry old = result.remove(oldPath);
+      if (old != null) result.putIfAbsent(canonicalBoardPath(oldPath), old);
+    }
     return result;
   }
 
@@ -761,7 +828,7 @@ final class AtopackStore {
         Iterator<String> faceNames = faces.keys();
         while (faceNames.hasNext()) {
           String face = faceNames.next();
-          String target = safePath(faces.optString(face), "Asset Studio 资源路径");
+          String target = canonicalBoardPath(safePath(faces.optString(face), "Asset Studio 资源路径"));
           result.put(catalogKey(itemId, face), target);
         }
       }

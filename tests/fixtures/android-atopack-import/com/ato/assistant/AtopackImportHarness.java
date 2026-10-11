@@ -133,7 +133,8 @@ public final class AtopackImportHarness {
     String back = "aibp/ps/TITAN_X/TITAN_X_AI_X_017_BACK.jpg";
     String absent = "aibp/ps/TITAN_X/TITAN_X_BP_X_006.jpg";
     JSONObject catalog = new JSONObject().put("format", "ato-android-resource-catalog").put("items", new JSONArray()
-        .put(item("front", front)).put(item("back", back)).put(item("absent", absent)));
+        .put(item("front", front)).put(item("back", back)).put(item("absent", absent))
+        .put(item("board", "ss/battle-board/battle-board.jpg")));
     Context imageContext = new Context(new File(directory, "image-index"), catalog.toString());
     AtopackStore imageStore = new AtopackStore(imageContext);
     check(imageStore.aibpImageIndex().getJSONArray("images").isEmpty(), "Catalog entries are not installed images");
@@ -141,7 +142,13 @@ public final class AtopackImportHarness {
     JSONObject manifest = new JSONObject().put("format", "ato-asset-pack").put("version", 3)
         .put("items", catalog.getJSONArray("items"))
         .put("assets", new JSONArray().put(asset("front", front, frontBytes)).put(asset("back", back, backBytes)));
-    File packageFile = pack(manifest, new Member(front, frontBytes), new Member(back, backBytes));
+    String previewTarget = front + ".preview.jpg";
+    byte[] previewBytes = bytes("small-front");
+    JSONObject preview = new JSONObject().put("source", front).put("sourceSha256", sha(frontBytes))
+        .put("target", previewTarget).put("member", previewTarget).put("sha256", sha(previewBytes))
+        .put("bytes", previewBytes.length).put("mimeType", "image/jpeg");
+    manifest.put("cardPreviewFiles", new JSONArray().put(preview));
+    File packageFile = pack(manifest, new Member(front, frontBytes), new Member(back, backBytes), new Member(previewTarget, previewBytes));
     imageStore.importPackage(new ContentResolver(), Uri.parse(packageFile.toURI().toString()));
     imageContext.getAssets().files.put("web/aibp/ps/other/trait/COMMON_TR_025.png", bytes("common"));
     imageContext.getAssets().files.put("web/" + front, frontBytes);
@@ -153,8 +160,61 @@ public final class AtopackImportHarness {
     check(images.toList().contains(front.substring(5)) && images.toList().contains(back.substring(5)), "Installed faces missing");
     check(!images.toList().contains(absent.substring(5)), "Uninstalled catalog filename leaked");
     check(images.toList().contains("ps/other/trait/COMMON_TR_025.png"), "Bundled traits missing");
+    check(imageStore.aibpImageIndex().getJSONObject("previews").getString(front.substring(5)).equals(previewTarget.substring(5)),
+        "Installed preview must be linked to its original, without appearing as a card");
+    JSONObject replacement = new JSONObject().put("format", "ato-asset-pack").put("version", 3)
+        .put("items", catalog.getJSONArray("items")).put("assets", new JSONArray().put(asset("front", front, bytes("replaced-front"))))
+        .put("cardPreviewFiles", new JSONArray().put(preview));
+    File replacementFile = pack(replacement, new Member(front, bytes("replaced-front")), new Member(previewTarget, previewBytes));
+    imageStore.importPackage(new ContentResolver(), Uri.parse(replacementFile.toURI().toString()));
+    check(!imageStore.aibpImageIndex().getJSONObject("previews").has(front.substring(5)), "Mismatched old preview must be discarded");
     Files.delete(new File(imageContext.getFilesDir(), "atopack/blobs/" + sha(backBytes)).toPath());
     check(!imageStore.aibpImageIndex().getJSONArray("images").toList().contains(back.substring(5)), "Deleted blob must not be advertised");
+
+    String board = "ss/battle-board/battle-board.jpg", boardPreview = board + ".preview.jpg";
+    byte[] boardBytes = bytes("large-board"), thumbnail = bytes("small-board");
+    JSONObject boardManifest = new JSONObject().put("format", "ato-asset-pack").put("version", 3)
+        .put("items", new JSONArray().put(item("board", board)))
+        .put("assets", new JSONArray().put(asset("board", board, boardBytes)))
+        .put("cardPreviewFiles", new JSONArray().put(resource(boardPreview, thumbnail)
+            .put("source", board).put("sourceSha256", sha(boardBytes))));
+    File boardFile = pack(boardManifest, new Member(board, boardBytes), new Member(boardPreview, thumbnail));
+    imageStore.importPackage(new ContentResolver(), Uri.parse(boardFile.toURI().toString()));
+    AtopackStore.OpenedResource smallBoard = imageStore.open(boardPreview);
+    check(smallBoard != null, "Battle board thumbnail must be imported");
+    try (InputStream input = smallBoard.input) {
+      check(Arrays.equals(input.readAllBytes(), thumbnail), "Board thumbnail must roundtrip independently from original");
+    }
+    check(!imageStore.aibpImageIndex().getJSONArray("images").toList().contains(boardPreview),
+        "Board thumbnail must not appear in the Boss card inventory");
+    boardManifest.put("assets", new JSONArray().put(asset("board", board, bytes("new-board"))));
+    File newBoardFile = pack(boardManifest, new Member(board, bytes("new-board")), new Member(boardPreview, thumbnail));
+    imageStore.importPackage(new ContentResolver(), Uri.parse(newBoardFile.toURI().toString()));
+    check(imageStore.open(boardPreview) == null, "Replacing the board must discard its mismatched thumbnail");
+
+    String legacyBoard = "ss/battle-board.jpg", legacyPreview = legacyBoard + ".preview.jpg";
+    JSONObject legacyManifest = new JSONObject().put("format", "ato-asset-pack").put("version", 3)
+        .put("items", new JSONArray().put(item("board", legacyBoard)))
+        .put("assets", new JSONArray().put(asset("board", legacyBoard, boardBytes)))
+        .put("cardPreviewFiles", new JSONArray().put(resource(legacyPreview, thumbnail)
+            .put("source", legacyBoard).put("sourceSha256", sha(boardBytes))));
+    File legacyFile = pack(legacyManifest, new Member(legacyBoard, boardBytes), new Member(legacyPreview, thumbnail));
+    AtopackStore.ImportResult migrated = imageStore.importPackage(new ContentResolver(), Uri.parse(legacyFile.toURI().toString()));
+    check(migrated.assets == 1 && migrated.skipped == 0, "Old board packs must import into the new directory");
+    try (InputStream input = imageStore.open(boardPreview).input) {
+      check(Arrays.equals(input.readAllBytes(), thumbnail), "Legacy thumbnail must be served under the new path");
+    }
+    File boardIndex = new File(imageContext.getFilesDir(), "atopack/index.json");
+    JSONObject oldIndex = new JSONObject(Files.readString(boardIndex.toPath()));
+    JSONObject indexedFiles = oldIndex.getJSONObject("files");
+    indexedFiles.put(legacyBoard, indexedFiles.remove(board));
+    indexedFiles.put(legacyPreview, indexedFiles.remove(boardPreview));
+    Files.writeString(boardIndex.toPath(), oldIndex.toString());
+    imageStore = new AtopackStore(imageContext);
+    try (InputStream input = imageStore.open(boardPreview).input) {
+      check(Arrays.equals(input.readAllBytes(), thumbnail), "Previously imported legacy thumbnail must survive app upgrade");
+    }
+    check(imageStore.open(legacyBoard) != null, "Legacy board requests must still read the migrated resource");
   }
 
   private void run() throws Exception {

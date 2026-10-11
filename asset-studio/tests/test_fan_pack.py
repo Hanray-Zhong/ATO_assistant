@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -26,7 +27,7 @@ from PIL import Image
 
 from app.catalog import CatalogItem, apply_catalog
 from app.db import Database
-from app.packages import import_package, inspect_package
+from app.packages import export_package, import_package, inspect_package
 from app.storage import store_image
 from app.story_extras import ENTITY_INDEX_JSON_TARGET, find_entity_index
 from tools.build_fan_pack import (
@@ -301,6 +302,63 @@ class IncrementalTests(Fixture):
 
 
 class ProjectSourceTests(Fixture):
+    def test_old_board_source_exports_original_and_thumbnail_in_the_new_directory(self):
+        target = "ss/battle-board/battle-board.jpg"
+        legacy = self.ato / "ss/battle-board.jpg"
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        Image.effect_noise((1800, 1200), 64).convert("RGB").save(legacy, quality=95)
+        self.payload["items"][0]["faces"]["front"] = "ss/battle-board.jpg"
+        self.build()
+        with zipfile.ZipFile(self.output) as archive:
+            self.assertEqual(archive.read(target), legacy.read_bytes())
+            entry = self.read_manifest()["cardPreviewFiles"][0]
+            self.assertEqual(entry["source"], target)
+            self.assertEqual(entry["member"], target + ".preview.jpg")
+            self.assertEqual(Image.open(io.BytesIO(archive.read(entry["member"]))).size, (1024, 683))
+            self.assertEqual(self.read_manifest()["items"][0]["faces"]["front"], target)
+        faces = dict(self.catalog[0].faces, front="ss/battle-board.jpg")
+        self.db.execute("UPDATE catalog_items SET faces_json=? WHERE id=?",
+                        (json.dumps(faces), self.catalog[0].id))
+        store_image(self.db, self.library, legacy, self.catalog[0].id, "front", legacy.name, "image/jpeg")
+        output = self.root / "studio-board.atopack"
+        export_package(self.db, self.library, output, filters={"include_stories": False})
+        with zipfile.ZipFile(output) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
+            self.assertEqual(manifest["items"][0]["faces"]["front"], target)
+            self.assertIn(target, archive.namelist())
+            self.assertIn(target + ".preview.jpg", archive.namelist())
+
+    def test_large_aibp_card_gets_a_preview_of_the_actual_packed_face(self):
+        target = "aibp/ps/HEKATON/HEKATON.jpg"
+        source = self.ato / target
+        source.parent.mkdir(parents=True)
+        Image.effect_noise((2400, 1800), 64).convert("RGB").save(source, quality=95)
+        original = source.read_bytes()
+        self.payload["items"][0]["faces"]["front"] = target
+        self.build(image_quality=85)
+        with zipfile.ZipFile(self.output) as archive:
+            manifest = self.read_manifest()
+            entry = manifest["cardPreviewFiles"][0]
+            self.assertEqual(entry["source"], target)
+            self.assertEqual(entry["sourceSha256"], hashlib.sha256(archive.read(target)).hexdigest())
+            self.assertEqual(Image.open(io.BytesIO(archive.read(entry["target"]))).size, (1600, 1200))
+        self.assertEqual(source.read_bytes(), original)
+
+        # The interactive Asset Studio exporter must also support Windows ZIPs
+        # and generate from the effective uploaded face, rather than its UI thumb.
+        faces = dict(self.catalog[0].faces, front=target)
+        self.db.execute("UPDATE catalog_items SET faces_json=? WHERE id=?",
+                        (json.dumps(faces), self.catalog[0].id))
+        stored = store_image(self.db, self.library, source, self.catalog[0].id, "front", source.name, "image/jpeg")
+        output = self.root / "studio.atopack"
+        export_package(self.db, self.library, output, filters={"include_stories": False})
+        with zipfile.ZipFile(output) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
+            entry = manifest["cardPreviewFiles"][0]
+            self.assertEqual(entry["sourceSha256"], stored["sha256"])
+            self.assertEqual(entry["sourceSha256"], hashlib.sha256(archive.read(target)).hexdigest())
+            self.assertLess(entry["bytes"], len(archive.read(target)))
+
     def test_pack_is_complete_importable_and_comes_from_the_project(self):
         result = self.build()
         self.assertTrue(self.output.is_file())

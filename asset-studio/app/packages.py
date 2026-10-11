@@ -31,6 +31,7 @@ from .mixed_media_resources import MAX_FILES as MAX_MIXED_MEDIA_FILES
 from .official_assets import resolve as resolve_official_asset
 from .official_resources import LIBRARY, collect, add_to_archive, checked_bytes, import_resources
 from .db import Database
+from .card_previews import add_to_archive as add_card_preview, canonical_board_path, is_preview_source
 from .installer import installable_relative, safe_relative
 from .storage import sha256_file, store_image, write_compatible_image
 from .story_extras import (
@@ -166,7 +167,8 @@ def export_package(
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "catalogSource": db.get_meta("catalog_source", {}),
         "items": [
-            {**{key: value for key, value in item.items() if key != "faces_json"}, "faces": json.loads(item["faces_json"])}
+            {**{key: value for key, value in item.items() if key != "faces_json"},
+             "faces": {face: canonical_board_path(target) for face, target in json.loads(item["faces_json"]).items()}}
             for item in items
         ],
         "assets": [],
@@ -177,6 +179,7 @@ def export_package(
     destination.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
         written_members: dict[str, str] = {}
+        preview_entries = []
         official_assets = 0
         total = max(len(rows), 1)
         for index, row in enumerate(rows, 1):
@@ -188,7 +191,8 @@ def export_package(
             target = json.loads(row["faces_json"]).get(row["face"])
             if not target:
                 raise ValueError(f"清单中缺少资源路径：{row['item_id']} / {row['face']}")
-            member = str(safe_member(str(target)))
+            target = canonical_board_path(str(target))
+            member = str(safe_member(target))
             if use_official_assets:
                 source, overridden = resolve_official_asset(
                     ato_root, target, library / row["original_path"]
@@ -197,12 +201,17 @@ def export_package(
                 source, overridden = library / row["original_path"], False
             if overridden:
                 official_assets += 1
-            source_hash = sha256_file(source)
+            preview_source = source.read_bytes() if is_preview_source(member) else None
+            source_hash = hashlib.sha256(preview_source).hexdigest() if preview_source is not None else sha256_file(source)
             previous_hash = written_members.get(member)
             if previous_hash is not None and previous_hash != source_hash:
                 raise ValueError(f"清单资源路径冲突：{member}")
             if previous_hash is None:
-                archive.write(source, member)
+                if preview_source is None:
+                    archive.write(source, member)
+                else:
+                    archive.writestr(member, preview_source)
+                    add_card_preview(archive, member, preview_source, preview_entries)
                 written_members[member] = source_hash
             manifest["assets"].append({
                 "itemId": row["item_id"], "face": row["face"], "sha256": source_hash,
@@ -228,6 +237,7 @@ def export_package(
                                   fallback_files=lambda present: _legacy_cryptic_files(legacy_cryptic_rows, library, present))
         if filters.get("include_mixed_media", True):
             add_mixed_media_to_archive(archive, manifest, ato_root, fallback_library=library)
+        manifest["cardPreviewFiles"] = preview_entries
         archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
     return {
         "path": str(destination),
@@ -467,7 +477,7 @@ def _restore_catalog(db: Database, snapshot: dict[str, dict | None]) -> None:
 
 
 def _stage_member(archive: zipfile.ZipFile, member: str, temp: Path, expected: str) -> None:
-    """把成员复制到临时文件，同时校验哈希，并确认它真的是可解码的图片。
+    """把成员复制到临时文件并校验哈希；图片须可解码，白名单二进制素材保留原字节。
 
     任何一步失败都发生在数据库被改动之前。
     """
@@ -479,6 +489,8 @@ def _stage_member(archive: zipfile.ZipFile, member: str, temp: Path, expected: s
             output.write(chunk)
     if digest.hexdigest() != expected:
         raise ValueError(f"资料包文件校验失败：{member}")
+    if member.startswith("aibp/ps/other/") and Path(member).suffix.lower() == ".bin" and installable_relative(member):
+        return
     try:
         from PIL import Image
         with Image.open(temp) as probe:
@@ -748,7 +760,7 @@ def export_compat(
                 continue
             # 目标必须与安装目标一样严格：清单里被污染的路径（反斜杠 / .. 等）
             # 会让渲染文件跑到临时目录之外。
-            target = str(safe_member(str(target)))
+            target = str(safe_member(canonical_board_path(str(target))))
             # 第二层独立成立（第一层将来被放宽也不会漏）：PurePosixPath("..").name 仍然是
             # ".."（不是空串），Path(temp) / ".." 会解析到临时目录的上一层；带盘符的
             # "C:evil.js" 在盘符与渲染目录不一致时会把整个路径替换掉。渲染文件名和
@@ -770,6 +782,7 @@ def export_compat(
                     official_assets += 1
                 write_compatible_image(source, rendered)
                 archive.write(rendered, str(member))
+                add_card_preview(archive, str(member), rendered.read_bytes(), [])
             written += 1
             if progress:
                 progress(index, total, f"正在转换第 {index}/{len(rows)} 个图片")

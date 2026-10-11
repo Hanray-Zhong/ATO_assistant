@@ -9,7 +9,7 @@ const functions = [
   'isPlainObject', 'clonePileState', 'migrateLegacyHealedPiles', 'loadSavedPiles', 'savePiles',
   'rememberUndo', 'trimUndoStack', 'undoSharedState', 'captureUndoEffects',
   'undoEntryIndex', 'reverseUndoEffects', 'canUndo', 'undoLastAibp', 'updateUndoButtons',
-  'drawAi', 'drawBp', 'discardAiPending', 'removePendingFromDeck', 'resolveBp', 'sameCard',
+  'hasAiCombo', 'drawAi', 'drawBp', 'discardAiPending', 'removePendingFromDeck', 'resolveBp', 'sameCard',
   'startNewCampaign', 'startScry', 'cancelScry',
   'currentBpDamageKey', 'currentBpDamageView', 'currentBpHealIndex', 'healBp',
   'bpDamageValue', 'bpDamageTotalForKey', 'currentBpDamageSummary',

@@ -193,7 +193,7 @@ class KeepPatternTests(unittest.TestCase):
         """提交里那份名单必须盖住决战板图 + 使徒面板 + Trait 大卡。"""
         path = Path(__file__).resolve().parents[1] / "pack-shrink-keep.txt"
         patterns = load_keep_patterns(path)
-        self.assertTrue(matches_any("ss/battle-board.jpg", patterns))
+        self.assertTrue(matches_any("ss/battle-board/battle-board.jpg", patterns))
         for name in (
             "aibp/ps/THE_BURDEN/THE_BURDEN.jpg",
             "aibp/ps/LABYRINTHAUROS/LABYRINTHAUROS.jpg",

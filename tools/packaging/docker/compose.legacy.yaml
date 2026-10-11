@@ -1,10 +1,9 @@
 # Docker Compose v1 (docker-compose >= 1.21.0).
 # Save next to the existing data/ and app/ directories, then run:
-#   mkdir -p data app/ss
-#   touch app/ss/battle-board.jpg
+#   mkdir -p data app/ss/battle-board
 #   docker-compose -f compose.legacy.yaml pull
 #   docker-compose -f compose.legacy.yaml up -d
-# battle-board.jpg must be a FILE, not a directory. Keep an existing real image.
+# The battle-board folder contains both the original image and its thumbnail.
 # v1 cannot use pull_policy or bind.create_host_path; always pull before updating.
 version: "2.4"
 
@@ -29,9 +28,8 @@ services:
       - ./app/map/images:/app/map/images
       - ./app/map/tokens:/app/map/tokens
       - ./app/record/assets:/app/record/assets
-      # Create the placeholder file BEFORE up; v1 otherwise creates a directory.
       # Only mount artwork so the second-screen program can still update.
-      - ./app/ss/battle-board.jpg:/app/ss/battle-board.jpg:ro
+      - ./app/ss/battle-board:/app/ss/battle-board:ro
       - ./app/ss/terrain:/app/ss/terrain:ro
       - ./app/ss/terrain-cards:/app/ss/terrain-cards:ro
       - ./app/story/images:/app/story/images
@@ -40,7 +38,7 @@ services:
       # Cryptic glyphs (Babelian/Siren) come from the user's resource pack (crypticFiles section).
       - ./app/story/assets/cryptic/glyphs:/app/story/assets/cryptic/glyphs:ro
       # Mixed-media material (book crops + mapping) comes from the resource pack
-      # (mixedMediaFiles section). Create mapping.js as a FILE before up, like battle-board.jpg.
+      # (mixedMediaFiles section). Create mapping.js as a FILE before up.
       - ./app/story/assets/mixed-media/images:/app/story/assets/mixed-media/images:ro
       - ./app/story/assets/mixed-media/mapping.js:/app/story/assets/mixed-media/mapping.js:ro
       - ./app/story/data:/app/story/data:ro

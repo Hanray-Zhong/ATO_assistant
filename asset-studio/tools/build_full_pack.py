@@ -32,6 +32,7 @@ from app.mixed_media_resources import add_to_archive as add_mixed_media_to_archi
 from app.official_resources import add_to_archive
 from app.official_assets import resolve as resolve_official_asset  # noqa: E402
 from app.fixed_catalog import fixed_catalog_payload  # noqa: E402
+from app.card_previews import BOARD_SOURCE, LEGACY_BOARD_SOURCE, add_to_archive as add_card_preview, is_preview_source  # noqa: E402
 from app.packages import PACKAGE_VERSION, safe_member  # noqa: E402
 from app.story_extras import (  # noqa: E402
     ENTITY_INDEX_JSON_TARGET,
@@ -110,10 +111,15 @@ def build(
             partial, "w", compression=zipfile.ZIP_STORED, allowZip64=True
         ) as output_zip:
             source_members = normalized_member_lookup(source_zip)
+            # Old APKs keep the board next to the second-screen program files.
+            if f"assets/web/{BOARD_SOURCE}" not in source_members and f"assets/web/{LEGACY_BOARD_SOURCE}" in source_members:
+                source_members[f"assets/web/{BOARD_SOURCE}"] = source_members[f"assets/web/{LEGACY_BOARD_SOURCE}"]
             overlay_files = {}
             overlay_flags = {}
             for _, _, target in faces:
                 fallback = overlay_root / Path(*PurePosixPath(target).parts) if overlay_root is not None else Path()
+                if target == BOARD_SOURCE and overlay_root is not None and not fallback.is_file():
+                    fallback = overlay_root / LEGACY_BOARD_SOURCE
                 source, overridden = resolve_official_asset(overlay_root, target, fallback)
                 overlay_files[target] = source
                 overlay_flags[target] = overridden
@@ -230,6 +236,10 @@ def build(
                     "本包不含 mixedMediaFiles 段；需要时先用素材库导入带该段的 .atopack 再重跑。",
                     flush=True,
                 )
+            preview_entries = []
+            for member in sorted({asset["member"] for asset in assets if is_preview_source(asset["member"])}):
+                add_card_preview(output_zip, member, output_zip.read(member), preview_entries)
+            manifest["cardPreviewFiles"] = preview_entries
             output_zip.writestr(
                 "manifest.json",
                 json.dumps(manifest, ensure_ascii=False, separators=(",", ":")),

@@ -10,10 +10,10 @@ const html = fs.readFileSync(path.join(root, 'aibp/index.html'), 'utf8').replace
 const src = 'ps/TITAN_X/TITAN_X.jpg';
 const payload = (previews = { [src]: `${src}.preview.jpg` }) => ({ ok: true, images: [src], previews });
 
-function harness(cached) {
+function harness(cached, savedAt = Date.now()) {
   const links = [];
   const storage = new Map();
-  if (cached) storage.set('aibp-image-inventory-v2', JSON.stringify({ savedAt: Date.now(), payload: cached }));
+  if (cached) storage.set('aibp-image-inventory-v2', JSON.stringify({ savedAt, payload: cached }));
   const requests = [];
   const timers = new Map();
   const frames = new Map();
@@ -52,6 +52,16 @@ function harness(cached) {
       }
     },
     complete: async (value = payload()) => {
+      if (!requests.length) {
+        for (const [id, timer] of timers) {
+          if (timer.delay === 1500) { timers.delete(id); timer.fn(); }
+        }
+        for (const [id, fn] of frames) { frames.delete(id); fn(); }
+        for (const [id, timer] of timers) {
+          if (timer.delay === 0) { timers.delete(id); timer.fn(); }
+        }
+        await Promise.resolve();
+      }
       requests.at(-1).resolve({ ok: true, json: async () => value });
       await window.AibpCardImages.load();
     } };
@@ -86,12 +96,90 @@ test('cached first cards are created before the main application or its dependen
 
 test('cold first-card rendering leaves cards already created by the main application intact', async () => {
   const h = harness();
-  h.api.showFirstCards();
   const existing = cardImage();
   h.wraps.get('panelWrap').appendChild(existing);
+  h.api.showFirstCards();
   await h.complete();
   assert.equal(h.wraps.get('panelWrap').children.length, 1);
   assert.equal(h.wraps.get('panelWrap').children[0], existing);
+});
+
+test('all three cold first cards start before the scan and release it after a paint', async () => {
+  const h = harness();
+  h.api.showFirstCards();
+  const first = [...h.wraps.values()].map((wrap) => wrap.children[0]);
+  assert.deepEqual(first.map((image) => image.src), [
+    `${src}.preview.jpg`,
+    'ps/TITAN_X/TITAN_X_ROUTINE_X_001.jpg',
+    'ps/TITAN_X/TITAN_X_SIGNATURE_X_001.jpg',
+  ]);
+  assert.equal(h.requests.length, 0);
+  h.api.showFirstCards(); // Repeated initialization must keep the same gate.
+  previewLoaded(first[0]);
+  previewLoaded(first[1]);
+  h.paint();
+  await Promise.resolve();
+  assert.equal(h.requests.length, 0);
+  previewLoaded(first[2]);
+  assert.equal(h.requests.length, 0);
+  h.paint();
+  await Promise.resolve();
+  assert.equal(h.requests.length, 1);
+  await h.complete();
+});
+
+test('old cached inventories remain usable immediately while their background refresh is pending', async () => {
+  const h = harness(payload(), Date.now() - 7 * 86400000);
+  h.api.showFirstCards();
+  assert.equal(h.wraps.get('panelWrap').children[0].src, `${src}.preview.jpg`);
+  assert.equal(h.requests.length, 0);
+  await h.complete();
+});
+
+test('a stale inventory cannot substitute the wrong Boss for an explicit public Boss link', async () => {
+  const old = 'ps/HEKATON/HEKATON.jpg';
+  const h = harness({ ok: true, images: [old], previews: { [old]: `${old}.preview.jpg` } });
+  h.api.showFirstCards();
+  assert.equal(h.wraps.get('panelWrap').children[0].src, `${src}.preview.jpg`);
+  assert.equal(h.wraps.get('panelWrap').children[0].dataset.fullSrc, src);
+  await h.complete();
+});
+
+test('cold packs without a panel preview fall back immediately without waiting for inventory', async () => {
+  const h = harness();
+  let failures = 0;
+  const image = { onerror: () => failures++ };
+  h.api.setSource(image, src);
+  assert.equal(image.src, `${src}.preview.jpg`);
+  image.onerror();
+  assert.equal(image.src, src);
+  assert.equal(h.requests.length, 0);
+  assert.equal(failures, 0);
+  image.onerror();
+  assert.equal(failures, 1);
+  await h.complete(payload({}));
+});
+
+test('cold bootstrap does not request hidden boss images', async () => {
+  const h = harness();
+  h.window.location.hash = '#BLACKBEAK';
+  h.api.showFirstCards();
+  assert.equal([...h.wraps.values()].flatMap((wrap) => wrap.children).length, 0);
+  await h.complete();
+});
+
+test('cold bootstrap recognizes every public boss in the main application', async () => {
+  const names = [...html.match(/^    const apostles = \[([^]*?)\];/m)[1].matchAll(/"([A-Z_]+)"/g)]
+    .map((match) => match[1]).filter((name) => !['HELIOS', 'BLACKBEAK'].includes(name));
+  for (const name of names) {
+    const h = harness();
+    h.window.location.hash = `#${name}`;
+    h.api.showFirstCards();
+    const panel = h.wraps.get('panelWrap').children[0];
+    const face = name === 'UR_FLEECE' ? `${name}_2` : name;
+    assert.equal(panel.src, `ps/${name}/${face}.jpg.preview.jpg`);
+    await h.complete();
+  }
 });
 
 test('main renderer adopts the painted first card and keeps its pending original upgrade', async () => {
@@ -112,6 +200,28 @@ test('main renderer adopts the painted first card and keeps its pending original
   assert.equal(adopted.src, src);
   assert.equal(h.originals.length, 1);
   assert.equal(typeof adopted._cardImageError, 'function');
+});
+
+test('an already failed first card gets its retry UI after the main renderer inserts it', async () => {
+  const h = harness();
+  h.api.showFirstCards();
+  const first = h.wraps.get('panelWrap').children[0];
+  first.onerror(); // Missing preview in an older pack.
+  first.onerror(); // Missing original as well, before the main renderer ran.
+  first.complete = true;
+  first.naturalWidth = 0;
+  const replaced = [];
+  first.replaceWith = (node) => replaced.push(node);
+  h.window.HeliosAssets = { resolve: (value) => value };
+  h.context.document.createElement = () => ({ appendChild() {}, addEventListener() {} });
+  vm.runInContext(html.match(/^    function imageOrMessage\([^]*?^    }/m)[0], h.context);
+  assert.equal(h.context.imageOrMessage(src, 'Boss panel', 'panel-image'), first);
+  assert.equal(replaced.length, 0, 'The caller must insert the returned image first');
+  h.paint();
+  assert.equal(replaced.length, 1);
+  assert.equal(replaced[0].className, 'missing');
+  assert.match(replaced[0].textContent, /图片加载失败/);
+  await h.complete();
 });
 
 test('preview paints first; background original replaces it only after loading and decoding', async () => {
@@ -231,17 +341,17 @@ test('cards without previews and encrypted assets use their existing source with
   assert.equal(h.originals.length, 0);
 });
 
-test('cold opening requests inventory immediately and loads the small image without fetching the original', async () => {
+test('cold opening starts the small image before inventory and defers the scan until after first paint', async () => {
   const h = harness();
-  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests.length, 0);
   const image = {};
   h.api.setSource(image, src);
-  assert.equal(image.src, undefined);
+  assert.equal(image.src, `${src}.preview.jpg`);
   await h.complete();
   assert.equal(image.src, `${src}.preview.jpg`);
   assert.equal(image.dataset.fullSrc, src);
   assert.equal(h.requests.length, 1);
-  assert.deepEqual(h.links.map((link) => link.href), [`${src}.preview.jpg`]);
+  assert.equal(h.links[0].href, `${src}.preview.jpg`);
   assert.equal(h.timers.size, 0);
 });
 
@@ -296,12 +406,16 @@ test('a view switched before inventory finishes cannot receive the previous card
 
 test('offline refresh retains cached cards, and a later explicit retry recovers without duplicate requests', async () => {
   const h = harness(payload());
-  h.requests[0].reject(new Error('offline'));
-  await h.api.load();
+  await h.complete();
+  const offline = h.api.load(true);
+  await Promise.resolve();
+  h.requests.at(-1).reject(new Error('offline'));
+  await offline;
   assert.equal(h.api.sourceFor(src), `${src}.preview.jpg`);
   const retry = h.api.load(true);
   assert.equal(h.api.load(true), retry);
-  assert.equal(h.requests.length, 2);
+  await Promise.resolve();
+  assert.equal(h.requests.length, 3);
   await h.complete(payload({}));
   assert.equal(h.api.sourceFor(src), src);
 });

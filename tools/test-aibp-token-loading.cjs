@@ -33,6 +33,9 @@ function harness(files) {
     appendChild(node) { this.children.push(node); },
   };
   const context = {
+    window: { AIBP_BOSS_SEARCH: {
+      renderLabel(target, name, suffix) { target.textContent = name + suffix; },
+    } },
     tokenFileNames: files,
     tokenBasePath: 'ps/other/token',
     currentApostle: 'HEKATON',

@@ -1834,18 +1834,23 @@
     babelianFusionControl?.addEventListener("click", handleSpecialClick);
   }
 
+  function initializeCurrentSpecials() {
+    // Ordinary bosses already have their complete first render. In particular,
+    // do not rewrite every boss and undo snapshot merely to install this addon.
+    if (!isC45()) return;
+    const before = JSON.stringify(piles[currentApostle]);
+    ensurePiles(currentApostle);
+    syncDahakaLayout();
+    const levelBonusesSaved = applyCurrentApostleLevelBonuses();
+    if (!levelBonusesSaved && JSON.stringify(piles[currentApostle]) !== before) savePiles();
+    // The wrapper also renders the special controls, panel tokens and health.
+    renderAibpCards();
+    renderExtraCards();
+  }
+
   mountSpecials();
   interceptDirectListeners();
   window.C45SpecialsReady = true;
-  ensurePiles(currentApostle);
-  syncDahakaLayout();
-  applyCurrentApostleLevelBonuses();
-  savePiles();
-  renderAibpCards();
-  renderExtraCards();
-  renderSpecials();
-  renderBabelianBpControl();
-  refreshTitanRoster();
 
   window.C45Specials = {
     startTitanXGroup,
@@ -1929,6 +1934,8 @@
       saveAndRender();
     }
   };
-  // Saved group/awakening modes need their health and Deathblow restrictions on first render.
-  renderDeckInfo();
+  // Publish the rule hooks before the first C4/C5 render, including saved group
+  // and awakening modes, so health and Deathblow restrictions need no second pass.
+  initializeCurrentSpecials();
+  refreshTitanRoster();
 })();

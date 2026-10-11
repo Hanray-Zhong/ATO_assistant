@@ -70,7 +70,7 @@ The portable build can update itself from inside the program: click "check for u
 
 Android cannot update incrementally; download the new APK from the release page and install it over the old one. For a Docker deployment run `docker compose pull && docker compose up -d`. Once the second screen is switched on in the dashboard, reach it at /ss/ on the current address.
 
-**When upgrading to 3.6.1-rc.2, Docker users must first update `compose.yaml` (or `compose.legacy.yaml` for v1) from the same release tag, preserving custom ports and deployment settings, then pull and recreate the container.** The board and thumbnail now share the `app/ss/battle-board/` directory mount. Set `ATO_VERSION=3.6.1-rc.2` in `.env`; prereleases do not update `latest`. Also reimport the updated atopack generated on 2026-10-11. Update Android and Asset Studio before importing; Docker users extract resources into the host `app/` directory. A resource pack cannot update program code.
+**When upgrading to 3.6.1, Docker users must first update `compose.yaml` (or `compose.legacy.yaml` for v1) from the same release tag, preserving custom ports and deployment settings, then pull and recreate the container.** The board and thumbnail now share the `app/ss/battle-board/` directory mount. The stable release updates `latest`; set `ATO_VERSION=3.6.1` in `.env` to pin this version. Also reimport the updated atopack generated on 2026-10-11. Update Android and Asset Studio before importing; Docker users extract resources into the host `app/` directory. A resource pack cannot update program code.
 
 ### Importing resources (.atopack)
 

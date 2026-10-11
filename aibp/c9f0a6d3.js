@@ -69,10 +69,25 @@
   root.HeliosConfig = {
     common,
     modes,
-    panelFor(mode, level) {
-      return mode === "normal" && level >= 5 ? modes.normal.panelHigh : modes[mode].panel;
+    // 正面大卡始终是面板。背面大卡不再按等级顶掉它：等级变化只影响数值与特性，
+    // 不改变面板显示的是哪张卡。
+    panelFor(mode) {
+      return modes[mode].panel;
     },
     cards(mode, type, level) { return modes[mode]?.decks[type]?.[level] || []; },
+    // 背面大卡（sources.back）与其他始徒的 *_TR_O_001 同类，因此按 TR O 特性卡处理：
+    // 默认不显示，玩家在 Trait 选择里勾选后才进特性区。图片本身是横向大卡旋转 90°
+    // 存放的，显示时要用 rotate 转回来。
+    traitCandidates(mode) {
+      const back = modes[mode]?.panelHigh;
+      return back ? [{ level: "O", index: 1, ext: "png", src: back, rotate: -90 }] : [];
+    },
+    // 入口层用卡面（等级 + 编号）反查配置提供的卡，列表、卡图和旋转都靠它。
+    candidateFor(mode, card) {
+      if (!card || card.scope) return null;
+      return root.HeliosConfig.traitCandidates(mode)
+        .find((entry) => entry.level === card.level && entry.index === Number(card.index)) || null;
+    },
     extras(mode) {
       return (modes[mode]?.extras || []).map(([label, folder, front, back]) => ({
         label, src: envelope(folder, front), backSrc: envelope(folder, back),

@@ -263,7 +263,8 @@ test("AIBP 入口接线：解锁后直接进黑喙自己的入口", () => {
   assert.match(indexSource, /blackbeakUnlockKey/, "缺少黑喙解锁键");
   assert.match(indexSource, /localStorage\.setItem\(unlockKey, "1"\)/, "解锁没有落盘");
   assert.match(indexSource, /renderApostle\("BLACKBEAK"\)/, "解锁后没有进黑喙入口");
-  assert.match(indexSource, /C5 · Blackbeak|BLACKBEAK · 黑喙/, "缺少黑喙标题");
+  assert.match(entryFunction("renderApostleTitle"), /currentApostle === "BLACKBEAK"[\s\S]*?AIBP_BOSS_SEARCH\.renderLabel\(title, currentApostle\)/, "黑喙标题没有跟随翻译选择");
+  assert.equal(bossSearch.entries.find(entry => entry.id === "BLACKBEAK").names.official, "黑喙");
   // 黑喙不该再走 HELIOS 的模式覆盖
   assert.doesNotMatch(indexSource, /apostleLevelOverrides\.HELIOS\s*=\s*mode === "blackbeak"/,
     "黑喙不该写进 HELIOS 的模式覆盖");

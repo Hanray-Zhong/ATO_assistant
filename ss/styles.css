@@ -631,6 +631,23 @@ h1 {
   opacity: 0.62;
 }
 
+.token-condition-label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 4px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .boss-token.custom-token {
   border-radius: 50%;
   background: transparent url("../aibp/ps/other/custom-token-cm.png?v=20260930-medium-rim1") center / contain no-repeat;

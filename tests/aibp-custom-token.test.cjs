@@ -40,6 +40,19 @@ function harness() {
   return { context, input, dialog, saved: () => JSON.parse(saved), rendered: () => rendered, synchronized: () => synchronized };
 }
 
+test('wish-condition AT reminder stays separate from ordinary AT token stacks', () => {
+  const { context } = harness();
+  const tokens = context.normalizeTokenStacks([
+    { id: 'wish-at', file: 'AT+.png', count: 1, demidjinnWishArmor: true, label: '愿望状态数' },
+    { id: 'normal-at', file: 'AT+.png', count: 2 },
+    { id: 'level-at', file: 'AT+.png', count: 3 },
+  ]);
+  assert.equal(tokens.length, 2);
+  assert.equal(tokens[0].label, '愿望状态数');
+  assert.equal(tokens[0].count, 1);
+  assert.equal(tokens[1].count, 5);
+});
+
 test('custom tokens trim whitespace, reject empty input, and keep separate identities', () => {
   const { context } = harness();
   assert.equal(context.addCustomPanelToken(' \n '), null);
@@ -120,10 +133,13 @@ test('second screen renders both custom and image tokens, including quantity bad
   context.renderBossTokens([
     { file: '', text: '中毒', src, count: 3, x: 40, y: 60 },
     { file: 'DA+.png', count: 1, x: 50, y: 50 },
+    { file: 'AT+.png', count: 1, label: '愿望状态数', x: 24, y: 8 },
   ]);
-  assert.equal(layer.children.length, 2);
+  assert.equal(layer.children.length, 3);
   assert.equal(layer.children[0].children[0].src, src);
   assert.equal(layer.children[0].children[0].alt, '中毒');
   assert.equal(layer.children[0].children[1].textContent, '×3');
   assert.equal(layer.children[1].children[0].src, '/aibp/ps/other/token/DA+.png');
+  assert.equal(layer.children[2].children[1].className, 'token-condition-label');
+  assert.equal(layer.children[2].children[1].textContent, '愿望状态数');
 });

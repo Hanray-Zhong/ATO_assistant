@@ -181,7 +181,7 @@ test("牌底 AI 抽取与刷新后的弃置不会留下重复卡", () => {
     currentApostle: "BLACKBEAK", piles: { BLACKBEAK: state },
     ensurePiles() {}, rememberUndo() {}, savePiles() {}, renderAibpCards() {},
     cardSrc: (card) => card.src, openImageZoom() {},
-    currentPanelCardTokens: () => [], chimeraName: "CHIMERA_METASTASIOS",
+    currentPanelCardTokens: () => [], currentAiNoticeImages: () => [], chimeraName: "CHIMERA_METASTASIOS",
     sameCard: (a, b) => a?.type === b?.type && a?.level === b?.level && a?.index === b?.index,
   };
   vm.runInNewContext(`${entryFunction("hasAiCombo")}\n${entryFunction("drawAi")}\n${entryFunction("removePendingFromDeck")}\n${entryFunction("discardAiPending")}\ndrawAi();`, context);

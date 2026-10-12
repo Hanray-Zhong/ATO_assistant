@@ -46,6 +46,8 @@
     III: "Pillars to Pyres",
     IV: "Sand to Silica"
   };
+  // Asset suffixes identify the images; they do not match the printed levels.
+  const GLOBAL_WISH_LEVELS = { I: "II", II: "I", III: "I", IV: "I" };
   const GLOBAL_WISH_TEXT = {
     I: {
       original: "Normal (not Terrain) Battle Board spaces are considered Terrain tiles with the Chasm keyword.",
@@ -140,6 +142,7 @@
     const data = state.special.titanX;
     data.groupBackup = clonePileState({ AI: state.AI, BP: state.BP, feint: state.feint,
       battleMap: state.battleMap, activeStatus: data.activeStatus, pendingEffect: data.pendingEffect,
+      kratosReminder: data.kratosReminder,
       awakened: data.awakened, awakeningWon: data.awakeningWon });
     state.AI = { ...makeTitanXBpPile(), deck: shuffleCards(Array.from({ length: 6 }, (_, i) => makeCard("AI", "I", i + 1))),
       supply: { I: [], II: shuffleCards(Array.from({ length: 6 }, (_, i) => makeCard("AI", "II", i + 1))),
@@ -148,6 +151,7 @@
     state.feint = { deck: shuffleCards(Array.from({ length: 10 }, (_, i) => makeCard("FEINT", "X", i + 1))), active: [], removed: [] };
     data.activeStatus = null;
     data.pendingEffect = null;
+    data.kratosReminder = null;
     data.awakened = false;
     data.awakeningWon = false;
     data.group = { target: 1, counter: 0, g6: false, queue: [], aiActor: null, pendingBpEnemy: null, won: false };
@@ -517,6 +521,10 @@
     special.awakeningWon ||= false;
     if (special.group) updateTitanXGroup(state);
     special.activeStatus ||= null;
+    special.kratosReminder = special.kratosReminder?.index === 6 ? special.kratosReminder : null;
+    if (special.kratosReminder) {
+      state.feint.deck = state.feint.deck.filter(card => cardIdentity(card) !== cardIdentity(special.kratosReminder));
+    }
     special.pendingEffect = FEINT_META[special.pendingEffect?.index]?.kind === "effect"
       ? special.pendingEffect
       : null;
@@ -622,6 +630,12 @@
       ensureGlobalWishState(state);
       ensureDemidjinnLastWish(state);
       syncTriggeredCounterToken(state, "demidjinn", special.demidjinn.wishForWish);
+      const wishArmor = state.tokens.find(item => item.demidjinnWishArmor === true);
+      state.tokens = state.tokens.filter(item => item.demidjinnWishArmor !== true);
+      if (apostleLevelFor("DEMIDJINN") >= 2) state.tokens.push({
+        id: "demidjinn-wish-armor", file: "AT+.png", x: wishArmor?.x ?? 24, y: wishArmor?.y ?? 8,
+        count: 1, demidjinnWishArmor: true, label: "愿望状态数"
+      });
     } else if (name === "THE_BABELIAN_LUNACY") {
       special.babelian = {
         fusionBonus: 0,
@@ -668,11 +682,11 @@
     normalizeApostleSpecial(name, state);
   }
 
-  function wishCard(level) {
-    return makeCard("WISH", level, 1, {
-      fileName: `DEMIDJINN_WISH_${level}_001.jpg`,
+  function wishCard(assetLevel) {
+    return makeCard("WISH", GLOBAL_WISH_LEVELS[assetLevel], 1, {
+      fileName: `DEMIDJINN_WISH_${assetLevel}_001.jpg`,
       globalWish: true,
-      wishName: GLOBAL_WISH_NAMES[level]
+      wishName: GLOBAL_WISH_NAMES[assetLevel]
     });
   }
 
@@ -692,8 +706,9 @@
   }
 
   function newGlobalWishState() {
-    const levelCount = clamp(currentApostleLevel(), 1, 4);
-    const levels = ["I", "II", "III", "IV"].slice(0, levelCount);
+    const levelCount = clamp(apostleLevelFor("DEMIDJINN"), 1, 4);
+    const levels = Object.keys(GLOBAL_WISH_LEVELS)
+      .filter(key => GLOBAL_WISH_LEVELS[key] === "I" || levelCount >= 2);
     return {
       configuredLevel: levelCount,
       round: 1,
@@ -705,7 +720,7 @@
 
   function ensureGlobalWishState(state) {
     const holder = state.special.demidjinn;
-    const expectedLevel = clamp(currentApostleLevel(), 1, 4);
+    const expectedLevel = clamp(apostleLevelFor("DEMIDJINN"), 1, 4);
     const wish = holder.globalWish && typeof holder.globalWish === "object"
       ? holder.globalWish
       : null;
@@ -716,15 +731,18 @@
       wish.discard = Array.isArray(wish.discard) ? wish.discard : [];
       wish.active ||= null;
     }
-    const untouched = wish
-      && wish.round === 1
-      && !wish.active
-      && (wish.discard?.length || 0) === 0;
     const empty = wish
       && !wish.active
       && wish.deck.length === 0
       && wish.discard.length === 0;
-    if (!wish || empty || (wish.configuredLevel !== expectedLevel && untouched)) {
+    const expectedCards = Object.keys(GLOBAL_WISH_LEVELS)
+      .filter(key => GLOBAL_WISH_LEVELS[key] === "I" || expectedLevel >= 2)
+      .map(wishCard);
+    const existingCards = wish ? [...wish.deck, ...wish.discard, wish.active].filter(Boolean) : [];
+    const invalidCards = existingCards.length !== expectedCards.length
+      || expectedCards.some(expected => existingCards.filter(card =>
+        card.fileName === expected.fileName && card.level === expected.level).length !== 1);
+    if (!wish || empty || wish.configuredLevel !== expectedLevel || invalidCards) {
       holder.globalWish = newGlobalWishState();
     }
   }
@@ -1052,6 +1070,8 @@
       state.feint.removed.push(card);
       group.pendingFeintEnemy = null;
       updateTitanXGroup(state);
+    } else if (card.index === 6) {
+      state.special.titanX.kratosReminder = card;
     } else if (meta.overstep) {
       insertTitanXOverstep(meta.overstep, state, false);
       state.feint.removed.push(card);
@@ -1096,6 +1116,29 @@
     savePiles();
     renderAibpCards();
     openImageZoom(cardSrc(card), "效果变招", () => resolveTitanXFeint(card));
+  }
+
+  function openTitanXKratosReminder() {
+    if (currentApostle !== "TITAN_X") return;
+    const state = piles.TITAN_X;
+    const card = state?.special?.titanX?.kratosReminder;
+    if (!card) return;
+    openImageZoom(cardSrc(card), "心理游戏（奎托斯池提醒）");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "弃置";
+    button.addEventListener("click", () => {
+      if (currentApostle !== "TITAN_X" || piles.TITAN_X !== state
+        || state.special.titanX.kratosReminder !== card) return;
+      rememberUndo("TITAN_X", "AI");
+      state.special.titanX.kratosReminder = null;
+      state.feint.deck.push(card);
+      state.feint.deck = shuffleCards(state.feint.deck);
+      saveAndRender();
+      closeImageZoom();
+    });
+    imageZoomMoveActions.replaceChildren(button);
+    imageZoomMoveActions.classList.add("show");
   }
 
   function nextGlobalWish() {
@@ -1498,7 +1541,7 @@
       const data = state.special.titanX;
       const saved = data.groupBackup;
       for (const key of ["AI", "BP", "feint", "battleMap"]) state[key] = clonePileState(saved[key]);
-      for (const key of ["activeStatus", "pendingEffect", "awakened", "awakeningWon"]) data[key] = saved[key];
+      for (const key of ["activeStatus", "pendingEffect", "kratosReminder", "awakened", "awakeningWon"]) data[key] = saved[key];
       delete data.group;
       delete data.groupBackup;
       saveAndRender();
@@ -1577,6 +1620,7 @@
     renderSpecials();
     renderBabelianBpControl();
     renderPanelTokens();
+    if (currentApostle === "TITAN_X") renderExtraCards();
   };
 
   renderExtraCards = function () {
@@ -1853,6 +1897,7 @@
   window.C45SpecialsReady = true;
 
   window.C45Specials = {
+    openTitanXKratosReminder,
     startTitanXGroup,
     ensureTitanXAwakening,
     bossWounds() {

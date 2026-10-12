@@ -82,7 +82,7 @@ function harness(name, storage = new Map()) {
     setImageZoomBpActions() {}, setImageZoomFlipActions() {}, setImageZoomMoveActions() {},
     setImageZoomTokenActions() {}, setImageZoomCardTokens() {}, updatePanelZoomSwitch() {},
     cardSrc: card => `${card.type}-${card.level}-${card.index}.jpg`,
-    currentPanelCardTokens: () => [], currentBpNoticeImages: () => [],
+    currentPanelCardTokens: () => [], currentBpNoticeImages: () => [], currentAiNoticeImages: () => [],
     imageOrMessage: (src, alt) => Object.assign(new Element(), { src, alt }),
     shouldZoomImage: () => true, zoomCardTokenTypeFromImage: () => 'AI',
     flipContextFromImage: () => null, moveContextFromImage: () => null, tokenContextFromImage: () => null,

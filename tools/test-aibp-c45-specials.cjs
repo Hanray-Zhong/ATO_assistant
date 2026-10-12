@@ -79,10 +79,10 @@ class FakeElement {
     return null;
   }
 
-  replaceChildren() {
+  replaceChildren(...children) {
     this.innerHTML = "";
     this.textContent = "";
-    this.children = [];
+    this.children = children;
   }
 
   appendChild(element) {
@@ -221,6 +221,8 @@ function makeHarness(startApostle = "MIDASCORE", options = {}) {
     bpColumn: new FakeElement(),
     extraGrid: new FakeElement(),
     imageZoomBpActions: new FakeElement(),
+    imageZoomMoveActions: new FakeElement(),
+    closeImageZoom() { context.zoomClosed = true; },
     levels: {},
     lastZoom: null,
     shuffleCount: 0,
@@ -404,6 +406,9 @@ function makeHarness(startApostle = "MIDASCORE", options = {}) {
     },
     currentApostleLevel() {
       return context.levels[context.currentApostle] || 1;
+    },
+    apostleLevelFor(name) {
+      return context.levels[name] || 1;
     },
     applyCurrentApostleLevelBonuses() {}
   };
@@ -752,6 +757,93 @@ test("Demidjinn keeps AI IV aside and AI O at the bottom at level IV", () => {
   assert.match(activeWishTrait.src, /DEMIDJINN_WISH_I_001\.jpg$/);
 });
 
+test("Demidjinn gains a separate wish-condition AT token from level II", () => {
+  const app = makeHarness();
+  app.renderApostle("DEMIDJINN");
+  assert.equal(app.piles.DEMIDJINN.tokens.some(item => item.demidjinnWishArmor), false);
+  app.levels.DEMIDJINN = 2;
+  app.renderAibpCards();
+  let token = app.piles.DEMIDJINN.tokens.find(item => item.demidjinnWishArmor);
+  assert.equal(token.file, "AT+.png");
+  assert.equal(token.label, "愿望状态数");
+  app.piles.DEMIDJINN.tokens.push({ id: "normal-at", file: "AT+.png", count: 3 });
+  token.x = 30;
+  app.renderAibpCards();
+  assert.equal(app.piles.DEMIDJINN.tokens.filter(item => item.demidjinnWishArmor).length, 1);
+  assert.equal(app.piles.DEMIDJINN.tokens.find(item => item.demidjinnWishArmor).x, 30);
+  assert.equal(app.piles.DEMIDJINN.tokens.find(item => item.id === "normal-at").count, 3);
+  app.levels.DEMIDJINN = 1;
+  app.renderAibpCards();
+  assert.equal(app.piles.DEMIDJINN.tokens.some(item => item.demidjinnWishArmor), false);
+});
+
+test("Demidjinn uses the printed wish levels rather than asset suffixes at every boss level", () => {
+  for (let level = 1; level <= 9; level++) {
+    const app = makeHarness();
+    app.levels.DEMIDJINN = level;
+    app.renderApostle("DEMIDJINN");
+    const wish = app.piles.DEMIDJINN.special.demidjinn.globalWish;
+    const expected = level === 1
+      ? ["Pillars to Pyres", "Sand to Silica", "Stones to Sticks"]
+      : ["Pillars to Pyres", "Sand to Sea", "Sand to Silica", "Stones to Sticks"];
+    assert.deepEqual(Array.from(wish.deck, card => card.wishName).sort(), expected);
+    for (let draw = 0; draw < expected.length * 2; draw++) {
+      app.specialRoot.dispatch("click", makeActionTarget("next-global-wish"));
+      const active = wish.active;
+      assert.ok(expected.includes(active.wishName));
+      assert.equal(active.level, active.wishName === "Sand to Sea" ? "II" : "I");
+    }
+  }
+});
+
+test("Demidjinn repairs legacy wishes even when their configured boss level is unchanged", () => {
+  const app = makeHarness();
+  app.levels.DEMIDJINN = 1;
+  app.renderApostle("DEMIDJINN");
+  const state = app.piles.DEMIDJINN;
+  state.special.demidjinn.globalWish = {
+    configuredLevel: 1, round: 5, deck: [], discard: [],
+    active: { type: "WISH", level: "I", index: 1, fileName: "DEMIDJINN_WISH_I_001.jpg", wishName: "Sand to Sea" }
+  };
+  app.renderAibpCards();
+  const fixed = state.special.demidjinn.globalWish;
+  assert.equal(fixed.active, null);
+  assert.equal(fixed.deck.length, 3);
+  assert.equal(fixed.deck.some(card => card.wishName === "Sand to Sea"), false);
+  app.specialRoot.dispatch("click", makeActionTarget("next-global-wish"));
+  const active = fixed.active;
+  app.renderAibpCards();
+  assert.strictEqual(state.special.demidjinn.globalWish.active, active);
+});
+
+test("Demidjinn rebuilds a started wish deck when its level changes", () => {
+  const app = makeHarness();
+  app.levels.DEMIDJINN = 4;
+  app.renderApostle("DEMIDJINN");
+  app.specialRoot.dispatch("click", makeActionTarget("next-global-wish"));
+  app.levels.DEMIDJINN = 1;
+  app.renderAibpCards();
+  const wish = app.piles.DEMIDJINN.special.demidjinn.globalWish;
+  assert.equal(wish.configuredLevel, 1);
+  assert.deepEqual(Array.from(wish.deck, card => card.level).sort(), ["I", "I", "I"]);
+  assert.equal(wish.deck.some(card => card.wishName === "Sand to Sea"), false);
+  assert.equal(wish.active, null);
+  assert.equal(wish.discard.length, 0);
+  app.levels.DEMIDJINN = 3;
+  app.renderAibpCards();
+  assert.deepEqual(Array.from(app.piles.DEMIDJINN.special.demidjinn.globalWish.deck,
+    card => card.level).sort(), ["I", "I", "I", "II"]);
+});
+
+test("Demidjinn wish setup uses its own level while another boss is selected", () => {
+  const app = makeHarness("HEKATON");
+  app.levels.HEKATON = 4;
+  app.levels.DEMIDJINN = 2;
+  app.ensurePiles("DEMIDJINN");
+  assert.deepEqual(Array.from(app.piles.DEMIDJINN.special.demidjinn.globalWish.deck,
+    card => card.level).sort(), ["I", "I", "I", "II"]);
+});
+
 test("Demidjinn keeps exactly one global-wish card when the base extra view stays unchanged", () => {
   const app = makeHarness("HEKATON", { keepUnchangedExtraCards: true });
   app.levels.DEMIDJINN = 4;
@@ -1045,6 +1137,37 @@ test("Babelian BP module records and clears its bonus without discard overwrites
   assert.equal(state.special.babelian.fusionBonus, 0);
 });
 
+test("Mind Games remains a separate Kratos reminder until explicitly discarded", () => {
+  const app = makeHarness("TITAN_X");
+  const state = app.piles.TITAN_X;
+  state.feint.deck = [{ type: "FEINT", level: "X", index: 9 },
+    { type: "FEINT", level: "X", index: 6 }];
+  app.drawFeint();
+  app.drawFeint();
+  assert.equal(state.special.titanX.pendingEffect.index, 6);
+  app.lastZoom.onClose();
+  assert.equal(state.special.titanX.kratosReminder.index, 6);
+  assert.equal(state.special.titanX.activeStatus.index, 9);
+  assert.equal(state.feint.active.length, 1);
+  assert.equal(state.feint.deck.some(card => card.index === 6), false);
+  app.piles.TITAN_X = JSON.parse(JSON.stringify(state));
+  app.renderApostle("TITAN_X");
+  app.C45Specials.openTitanXKratosReminder();
+  assert.match(app.lastZoom.title, /奎托斯池提醒/);
+  assert.equal(app.lastZoom.onClose, undefined);
+  const discard = app.imageZoomMoveActions.children[0];
+  assert.equal(discard.textContent, "弃置");
+  discard.dispatch("click");
+  const restored = app.piles.TITAN_X;
+  assert.equal(restored.special.titanX.kratosReminder, null);
+  assert.equal(restored.special.titanX.activeStatus.index, 9);
+  assert.equal(restored.feint.deck.filter(card => card.index === 6).length, 1);
+  assert.equal(app.zoomClosed, true);
+  app.undoLastAibp("AI");
+  assert.equal(app.piles.TITAN_X.special.titanX.kratosReminder.index, 6);
+  assert.equal(app.piles.TITAN_X.feint.deck.some(card => card.index === 6), false);
+});
+
 test("Titan X effect Feints can resume after reloading without drawing another card", () => {
   const app = makeHarness("TITAN_X");
   const state = app.piles.TITAN_X;
@@ -1212,7 +1335,7 @@ test("partial special-state saves receive missing defaults", () => {
   app.renderApostle("DEMIDJINN");
   assert.equal(
     app.piles.DEMIDJINN.special.demidjinn.globalWish.deck.length,
-    2
+    4
   );
 });
 

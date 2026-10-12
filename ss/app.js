@@ -661,6 +661,12 @@ function renderBossTokens(tokens) {
     image.src = token.text ? token.src : aibpImageUrl(`ps/other/token/${token.file}`);
     image.alt = token.text || token.file;
     stack.appendChild(image);
+    if (token.label) {
+      const label = document.createElement("span");
+      label.className = "token-condition-label";
+      label.textContent = token.label;
+      stack.appendChild(label);
+    }
     if (hasCountBadge) {
       const count = document.createElement("b");
       count.textContent = `×${token.count}`;

@@ -187,7 +187,7 @@ const aibpSource = fs.readFileSync(path.join(root, "aibp", "index.html"), "utf8"
 Object.assign(context, {
   ensurePiles() {}, rememberUndo() {}, savePiles() {}, renderAibpCards() {},
   isChimera: () => context.currentApostle === "CHIMERA_METASTASIOS",
-  bpDamageTargetSelect: { value: "damage1" }, currentBpView: "损伤",
+  currentBpView: "损伤",
 });
 for (const name of ["currentBpDamageKey", "currentBpDamageView", "currentBpHealIndex", "healBp"]) {
   const fn = aibpSource.match(new RegExp("^    function " + name + "\\([^]*?^    }", "m"));

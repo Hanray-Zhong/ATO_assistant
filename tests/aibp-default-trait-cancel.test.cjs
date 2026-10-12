@@ -158,6 +158,20 @@ test('额外卡取消勾选后记进 hiddenExtraCards，「恢复默认」重新
   assert.deepEqual(json(h.state.hiddenExtraCards), [], '恢复默认后额外卡重新显示');
 });
 
+test('先知 AI X 手动选择可保存，恢复默认后隐藏', () => {
+  const h = saveHarness('HYPERTIME_ORACLE');
+  const src = 'ps/HYPERTIME_ORACLE/HYPERTIME_ORACLE_AI_X_002.jpg';
+  const input = { checked: true, dataset: { extraCardSrc: src, defaultHidden: '1' } };
+  h.inputs([input]);
+  h.save();
+  assert.deepEqual(json(h.state.selectedExtraCards), [src]);
+  h.restore();
+  assert.equal(input.checked, false);
+  h.save();
+  assert.deepEqual(json(h.state.selectedExtraCards), []);
+  assert.deepEqual(json(h.state.hiddenExtraCards), [src]);
+});
+
 test('Trait 选择列出 AI/BP 的 O/X 额外卡（含奇美拉 AI_X 一类）', () => {
   const cards = json(extraCardsContext('HEKATON').traitAreaExtraCards('HEKATON'));
   assert.equal(cards.length, 2, '只列实际清单中的 AI/BP O/X 卡');
@@ -197,9 +211,15 @@ function extraCardsContext(apostle, { blackbeak = null, titanXGroup = false, hel
   return context;
 }
 
-function renderHarness(hiddenTraits = [], hiddenExtraCards = [], indexedSources = null, { apostle = 'HEKATON', level = 3, traits = [] } = {}) {
+function renderHarness(hiddenTraits = [], hiddenExtraCards = [], indexedSources = null, { apostle = 'HEKATON', level = 3, traits = [], selectedExtraCards = [], activeFeints = [], kratosReminder = null } = {}) {
   const existing = new Set(['ps/HEKATON/HEKATON_TR_I_003.jpg', 'ps/HEKATON/HEKATON_AI_O_001.jpg']);
   if (apostle === 'UR_FLEECE') existing.add('ps/UR_FLEECE/UR_FLEECE_TR_I_002.jpg');
+  if (apostle === 'TITAN_X') [3, 4, 6, 7, 9].forEach(index =>
+    existing.add(`ps/TITAN_X/TITAN_X_FEINT_X_${String(index).padStart(3, '0')}.jpg`));
+  if (apostle === 'HYPERTIME_ORACLE') {
+    existing.add('ps/HYPERTIME_ORACLE/HYPERTIME_ORACLE_AI_X_001.jpg');
+    existing.add('ps/HYPERTIME_ORACLE/HYPERTIME_ORACLE_AI_X_002.jpg');
+  }
   const makeImg = () => {
     const img = {
       alt: '', className: '', dataset: {}, onload: null, onerror: null, isConnected: true,
@@ -221,7 +241,8 @@ function renderHarness(hiddenTraits = [], hiddenExtraCards = [], indexedSources 
     replaceChildren(...next) { this.children = next.slice(); },
     appendChild(child) { this.children.push(child); },
   };
-  const state = { traits, hiddenTraits, hiddenExtraCards, customTraits: [] };
+  const state = { traits, hiddenTraits, hiddenExtraCards, selectedExtraCards, customTraits: [],
+    feint: { active: activeFeints }, special: { titanX: { kratosReminder } } };
   const context = vm.createContext({
     currentApostle: apostle,
     nietzscheName: 'THE_NIETZSCJEAN',
@@ -240,12 +261,33 @@ function renderHarness(hiddenTraits = [], hiddenExtraCards = [], indexedSources 
     enableOptionalCardBack() {}, reorderExtraGridForLargeCards() {}, scheduleSecondScreenSnapshot() {},
     resolveOptionalImagePresence: (src) => ({ then: (callback) => callback(existing.has(src)) }),
     currentApostleLevel: () => level,
+    cardSrc: card => `ps/${apostle}/${apostle}_${card.type}_${card.level}_${String(card.index).padStart(3, '0')}.jpg`,
   });
   load(context, ['traitKey', 'selectedTraitKeySet', 'hiddenTraitKeySet', 'hiddenExtraCardKeySet',
     'isTraitRemovedByLevel', 'isDefaultShownTrait', 'automaticTraitLevels', 'isNietzscheAllForOneLegacyTrait', 'indexedAibpCards', 'renderExtraCards']);
   context.renderExtraCards();
   return extraGrid.children.map((child) => child.src).filter(Boolean);
 }
+
+test('泰坦 X Trait 区显示当前生效变招，替换或结束后不保留旧变招', () => {
+  const options = { apostle: 'TITAN_X' };
+  assert.deepEqual(renderHarness([], [], null, options), []);
+  for (const index of [3, 4, 7, 9]) {
+    const activeFeints = [{ type: 'FEINT', level: 'X', index }];
+    assert.deepEqual(renderHarness([], [], null, { ...options, activeFeints }),
+      [`ps/TITAN_X/TITAN_X_FEINT_X_${String(index).padStart(3, '0')}.jpg`]);
+  }
+  assert.deepEqual(renderHarness([], [], null, options), []);
+});
+
+test('心理游戏提醒与生效变招同时显示，未放入奎托斯池时不显示', () => {
+  const options = { apostle: 'TITAN_X', activeFeints: [{ type: 'FEINT', level: 'X', index: 9 }] };
+  const active = 'ps/TITAN_X/TITAN_X_FEINT_X_009.jpg';
+  const reminder = 'ps/TITAN_X/TITAN_X_FEINT_X_006.jpg';
+  assert.deepEqual(renderHarness([], [], null, options), [active]);
+  assert.deepEqual(renderHarness([], [], null, { ...options,
+    kratosReminder: { type: 'FEINT', level: 'X', index: 6 } }), [active, reminder]);
+});
 
 test('特性区不再自动显示被取消的默认特性卡', () => {
   const defaultSrc = 'ps/HEKATON/HEKATON_TR_I_003.jpg';
@@ -269,6 +311,14 @@ test('特性区不再自动显示被取消的 AI/BP 额外卡', () => {
   const aiSrc = 'ps/HEKATON/HEKATON_AI_O_001.jpg';
   assert.ok(renderHarness().includes(aiSrc), '默认应该自动显示 AI O 1');
   assert.ok(!renderHarness([], [aiSrc]).includes(aiSrc), '取消后不该再出现');
+});
+
+test('先知 AI X 默认隐藏，手动选择后显示，取消后隐藏', () => {
+  const sources = [1, 2].map(index => `ps/HYPERTIME_ORACLE/HYPERTIME_ORACLE_AI_X_00${index}.jpg`);
+  const options = { apostle: 'HYPERTIME_ORACLE' };
+  assert.deepEqual(renderHarness([], [], sources, options), []);
+  assert.deepEqual(renderHarness([], [], sources, { ...options, selectedExtraCards: [sources[1]] }), [sources[1]]);
+  assert.deepEqual(renderHarness([], [sources[1]], sources, { ...options, selectedExtraCards: [sources[1]] }), []);
 });
 
 test('有实际文件清单时只显示清单中的图片，并继续遵守取消选择', () => {

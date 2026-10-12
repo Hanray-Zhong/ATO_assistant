@@ -26,7 +26,7 @@ function harness(wounds = 3) {
     window: { AIBP_BOSS_LEVEL_DATA: shared }, currentApostle: 'HEKATON', piles: { HEKATON: state },
     currentApostleLevel: () => level, currentAiView: '弃牌', currentBpView: '损伤',
     undoStacks: {}, pendingUndoEntry: null, maxUndoSteps: 30, activeScry: null,
-    isChimera: () => ctx.currentApostle === 'CHIMERA_METASTASIOS', bpDamageTargetSelect: { value: 'damage1' },
+    isChimera: () => ctx.currentApostle === 'CHIMERA_METASTASIOS',
     ensurePiles() {}, updateAiViewTabs() {}, updateBpViewTabs() {}, updateNietzscheStateUi() {},
     panelWrap: { querySelector() {} }, battleMapControl: { render() {} }, renderPanelTokens() {}, renderExtraCards() {},
     undoAiButton: {}, undoBpButton: {}, aiBackInfo: {}, bpBackInfo: {}, bpDamageSummary: {}, healBpButton: {},
@@ -163,20 +163,19 @@ test('pending cards, unknown health, active scry and special restrictions preven
   }
 });
 
-test('Chimera counts both piles and adds to the chosen damage pile', () => {
+test('Chimera counts both piles and adds deathblow damage to the regular pile', () => {
   const { ctx, state } = harness();
   ctx.currentApostle = 'CHIMERA_METASTASIOS';
   ctx.piles.CHIMERA_METASTASIOS = state;
   ctx.window.AIBP_BOSS_LEVEL_DATA.bosses.CHIMERA_METASTASIOS.levels['1'].stats.wounds = 3;
-  ctx.bpDamageTargetSelect.value = 'damage2';
   state.BP.damage1 = [{ special: 'SW' }];
   state.BP.damage2 = [{ special: 'SW' }];
   state.BP.deck = [card('I')];
   ctx.resolveBossDeathblow();
-  assert.equal(state.BP.damage1.length, 1);
-  assert.equal(state.BP.damage2.length, 2);
-  assert.equal(ctx.bpDamageSummary.textContent, '损伤：3 / 3（1+2）');
-  assert.equal(ctx.currentBpView, '第二损伤堆');
+  assert.equal(state.BP.damage1.length, 2);
+  assert.equal(state.BP.damage2.length, 1);
+  assert.equal(ctx.bpDamageSummary.textContent, '损伤：3 / 3（2+1）');
+  assert.equal(ctx.currentBpView, '常规损伤堆');
 });
 
 test('one BP undo restores the complete supplementation including its supplies and status', () => {

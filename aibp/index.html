@@ -1136,20 +1136,6 @@
 
 
 
-    .draw-actions .damage-target {
-      flex: 1 1 100%;
-      min-height: 24px;
-      padding: 3px 5px;
-      border-radius: 7px;
-      font-size: 12px;
-    }
-
-    .draw-actions .damage-target select {
-      min-height: 24px;
-      padding: 1px 5px;
-      font-size: 12px;
-    }
-
     .draw-actions button:not(:disabled):hover,
     .draw-panel button:not(:disabled):hover,
     .title-actions button:hover {
@@ -1298,18 +1284,6 @@
       box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
     }
 
-    .damage-target {
-      display: none;
-      gap: 5px;
-      align-items: start;
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .damage-target.show {
-      display: grid;
-    }
-
     .chimera-only-action {
       display: none;
     }
@@ -1353,16 +1327,6 @@
     .titan-x-only-action.show {
       display: inline-grid;
       align-items: center;
-    }
-
-    .damage-target select {
-      min-height: 34px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #151411;
-      color: var(--text);
-      padding: 5px 8px;
-      font: inherit;
     }
 
     .card-tile {
@@ -1514,20 +1478,6 @@
       padding: 14px 16px !important;
       font-size: 16px !important;
       font-weight: 900 !important;
-    }
-
-    .draw-actions .damage-target {
-      grid-column: 1 / -1 !important;
-      width: 100% !important;
-      min-height: 32px !important;
-      padding: 5px 8px !important;
-      font-size: 13px !important;
-      align-items: center !important;
-    }
-
-    .draw-actions .damage-target select {
-      min-height: 28px !important;
-      font-size: 13px !important;
     }
 
     .draw-preview {
@@ -1746,6 +1696,26 @@
       line-height: 1;
     }
 
+    .token-condition-label,
+    .panel-token-item.auto-level-danger-per-hit::after,
+    .image-zoom-card-token.auto-level-danger-per-hit::after,
+    .panel-token-item.critical-mass-token.must-resolve::after {
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      margin-top: 4px;
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.8);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.3;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
     .panel-token-item.custom-token {
       border-radius: 50%;
       background: transparent url("ps/other/custom-token-cm.png?v=20260930-medium-rim1") center / contain no-repeat;
@@ -1831,22 +1801,6 @@
 
     .panel-token-item.critical-mass-token.must-resolve::after {
       content: "立即处理";
-      position: absolute;
-      left: 50%;
-      top: calc(100% + 7px);
-      transform: translateX(-50%);
-      min-width: max-content;
-      padding: 5px 9px;
-      border: 2px solid #ff5252;
-      border-radius: 7px;
-      background: rgba(92, 4, 4, 0.96);
-      color: #fff;
-      font-size: 14px;
-      font-weight: 900;
-      line-height: 1;
-      box-shadow: 0 0 18px rgba(255, 42, 42, 0.78);
-      pointer-events: auto;
-      cursor: pointer;
     }
 
     @keyframes chimera-critical-mass-pulse {
@@ -1856,20 +1810,6 @@
 
     .panel-token-item.auto-level-danger-per-hit::after {
       content: "每命中";
-      position: absolute;
-      left: 50%;
-      top: calc(100% + 5px);
-      transform: translateX(-50%);
-      min-width: max-content;
-      padding: 3px 6px;
-      border: 1px solid rgba(199, 173, 114, 0.68);
-      border-radius: 5px;
-      background: rgba(18, 18, 16, 0.94);
-      color: #f4d98f;
-      font-size: 12px;
-      font-weight: 900;
-      line-height: 1;
-      pointer-events: none;
     }
 
 
@@ -2033,20 +1973,6 @@
 
     .image-zoom-card-token.auto-level-danger-per-hit::after {
       content: "每命中";
-      position: absolute;
-      left: 50%;
-      top: calc(100% + 5px);
-      transform: translateX(-50%);
-      min-width: max-content;
-      padding: 3px 6px;
-      border: 1px solid rgba(199, 173, 114, 0.68);
-      border-radius: 5px;
-      background: rgba(18, 18, 16, 0.94);
-      color: #f4d98f;
-      font-size: 12px;
-      font-weight: 900;
-      line-height: 1;
-      pointer-events: none;
     }
 
     .image-zoom-notice {
@@ -2491,13 +2417,6 @@
                 <button type="button" id="deathblowBpButton" disabled title="先结算致死一击，再按规则补齐剩余损伤。">秒杀 Boss</button>
                 <button type="button" id="returnBpTopButton" hidden disabled>放回牌堆顶</button>
                 <button type="button" id="healBpButton" disabled title="将损伤堆顶部的一张卡从本场战斗中暂时移除；不再计入损伤，也不提供战后资源。">回生（heal）</button>
-                <label class="damage-target" id="chimeraDamageTarget">
-                  <span>奇美拉损伤进入</span>
-                  <select id="bpDamageTargetSelect">
-                    <option value="damage1">常规损伤堆</option>
-                    <option value="damage2">第二损伤堆</option>
-                  </select>
-                </label>
                 <button type="button" id="addSwButton">添加 SW</button>
                 <button type="button" id="addDwButton">添加 DW</button>
                 <button type="button" id="addSwDamage2Button" class="chimera-only-action">第二损伤 +SW</button>
@@ -3230,8 +3149,6 @@
     const removeSwDamage2Button = document.getElementById("removeSwDamage2Button");
     const addLabyrinthaurosSpecialBpButton = document.getElementById("addLabyrinthaurosSpecialBpButton");
     const removeLabyrinthaurosSpecialBpButton = document.getElementById("removeLabyrinthaurosSpecialBpButton");
-    const chimeraDamageTarget = document.getElementById("chimeraDamageTarget");
-    const bpDamageTargetSelect = document.getElementById("bpDamageTargetSelect");
     const promoteBpSingleButton = document.getElementById("promoteBpSingleButton");
     const promoteBpButton = document.getElementById("promoteBpButton");
     const bpDrawPreview = document.getElementById("bpDrawPreview");
@@ -3571,6 +3488,9 @@
               : token;
           return {
             file: token.file,
+            label: token.demidjinnWishArmor ? token.label
+              : isPerHitTokenStack(token) ? "每命中"
+                : automaticTokenContribution(token, "evasionDice") > 0 ? "额外闪避骰" : "",
             ...(token.text ? { text: token.text, src: customTokenSrc(token.text) } : {}),
             count: token.count || 1,
             x: Number(position.x ?? 50),
@@ -4146,6 +4066,7 @@
         hiddenTraits: [],
         // 特性区里一并显示的额外卡（AI/BP 的 O/X、泰坦X 组特性、黑喙固定卡）按 src 记录。
         hiddenExtraCards: [],
+        selectedExtraCards: [],
         customTraits: [],
         tokens: [],
         battleMap: null,
@@ -4318,6 +4239,9 @@
         }
         piles[name].hiddenExtraCards = Array.from(new Set(piles[name].hiddenExtraCards
           .filter((key) => typeof key === "string" && key)));
+        piles[name].selectedExtraCards = Array.from(new Set(
+          (Array.isArray(piles[name].selectedExtraCards) ? piles[name].selectedExtraCards : [])
+            .filter((key) => typeof key === "string" && key)));
         if (!Array.isArray(piles[name].tokens)) {
           piles[name].tokens = [];
         }
@@ -4792,13 +4716,11 @@
     }
 
     function currentBpDamageKey() {
-      if (!isChimera()) return "damage";
-      return bpDamageTargetSelect.value === "damage2" ? "damage2" : "damage1";
+      return isChimera() ? "damage1" : "damage";
     }
 
     function currentBpDamageView() {
-      if (!isChimera()) return "损伤";
-      return currentBpDamageKey() === "damage2" ? "第二损伤堆" : "常规损伤堆";
+      return isChimera() ? "常规损伤堆" : "损伤";
     }
 
     function bpDamageValue(card) {
@@ -4933,10 +4855,6 @@
     function pushBpDamage(card) {
       ensurePiles(currentApostle);
       const damageKey = currentBpDamageKey();
-      if (isChimera() && damageKey === "damage2") {
-        addChimeraSecondDamage(card);
-        return;
-      }
       piles[currentApostle].BP[damageKey].push(card);
       if (isCyclonus() || currentApostle === "HEKATON" || currentApostle === "HYPERTIME_ORACLE") {
         addCriticalMass(bpDamageValue(card));
@@ -5370,6 +5288,7 @@
     function tokenContextFromImage(img) {
       const tokenItem = img?.closest(".panel-token-item");
       if (!tokenItem?.dataset?.tokenId) return null;
+      if (piles[currentApostle]?.tokens?.some(item => item.id === tokenItem.dataset.tokenId && item.demidjinnWishArmor)) return null;
       return {
         apostle: currentApostle,
         tokenId: tokenItem.dataset.tokenId,
@@ -5862,7 +5781,7 @@
     }
 
     function tokenMergeKeyForItem(item) {
-      if (!item || isCriticalMassStack(item)) return "";
+      if (!item || isCriticalMassStack(item) || item.demidjinnWishArmor) return "";
       return tokenMergeKey(item.file, { perHit: isPerHitTokenStack(item) });
     }
 
@@ -6791,7 +6710,8 @@
       }
       cards.push(...indexedAibpCards(name)
         .filter((card) => ["AI", "BP"].includes(card.type) && ["O", "X"].includes(card.level))
-        .map((card) => ({ src: card.src, label: `${card.type} ${card.level} ${card.index}` })));
+        .map((card) => ({ src: card.src, label: `${card.type} ${card.level} ${card.index}`,
+          defaultHidden: name === "HYPERTIME_ORACLE" && card.type === "AI" && card.level === "X" })));
       return cards;
     }
 
@@ -6872,12 +6792,15 @@
       traitAreaExtraCards(name).forEach((card) => {
         const option = document.createElement("label");
         option.className = "trait-option extra-card-option";
-        option.title = "特性区自动显示的额外卡；取消勾选并保存后不再显示";
+        option.title = card.defaultHidden ? "默认隐藏的额外卡；勾选并保存后显示"
+          : "特性区自动显示的额外卡；取消勾选并保存后不再显示";
 
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
         checkbox.dataset.extraCardSrc = card.src;
-        checkbox.checked = !hiddenExtraCards.has(card.src);
+        if (card.defaultHidden) checkbox.dataset.defaultHidden = "1";
+        checkbox.checked = !hiddenExtraCards.has(card.src)
+          && (!card.defaultHidden || (piles[name].selectedExtraCards || []).includes(card.src));
 
         const img = new Image();
         img.alt = card.label;
@@ -6899,7 +6822,8 @@
       traitImageCandidates(name).forEach(({ level, index, ext, src, rotate }) => {
         if (isNietzscheAllForOneLegacyTrait(name, level, index)) return;
         const img = new Image();
-        img.onload = () => {
+        // 缩略图换成原图会再次触发 load；每张卡只创建一次选项。
+        img.addEventListener("load", () => {
           if (token !== traitLoadToken) return;
           if (loading.isConnected) loading.remove();
           loaded += 1;
@@ -6942,14 +6866,14 @@
           }
           if (defaultShown) option.title = "默认显示；取消勾选并保存后从特性区移除";
           traitDialogGrid.appendChild(option);
-        };
+        }, { once: true });
         img.onerror = () => {};
         loadOptionalImage(img, src, () => token === traitLoadToken);
       });
 
       commonTraitImageCandidates(name).forEach(({ index, ext, src }) => {
         const img = new Image();
-        img.onload = () => {
+        img.addEventListener("load", () => {
           if (token !== traitLoadToken) return;
           if (loading.isConnected) loading.remove();
           loaded += 1;
@@ -6973,7 +6897,7 @@
 
           option.append(checkbox, img, caption);
           traitDialogGrid.appendChild(option);
-        };
+        }, { once: true });
         img.onerror = () => {};
         loadOptionalImage(img, src, () => token === traitLoadToken);
       });
@@ -7009,6 +6933,10 @@
         }
         const extraCardSrc = input.dataset.extraCardSrc;
         if (extraCardSrc) {
+          const selectedExtra = new Set(piles[currentApostle].selectedExtraCards || []);
+          if (input.checked && input.dataset.defaultHidden) selectedExtra.add(extraCardSrc);
+          else selectedExtra.delete(extraCardSrc);
+          piles[currentApostle].selectedExtraCards = [...selectedExtra];
           if (input.checked) hiddenExtra.delete(extraCardSrc);
           else hiddenExtra.add(extraCardSrc);
           return;
@@ -7059,7 +6987,7 @@
     // 「恢复默认」：清掉显式选择，默认显示的卡与额外卡恢复勾选（即解除隐藏）。
     function restoreDefaultTraits() {
       traitDialogGrid.querySelectorAll("input[type='checkbox']").forEach((input) => {
-        input.checked = Boolean(input.dataset.defaultShown || input.dataset.extraCardSrc);
+        input.checked = Boolean(input.dataset.defaultShown || input.dataset.extraCardSrc) && !input.dataset.defaultHidden;
         // 默认卡本来就由特性区自动显示，恢复后不必在存档里留下显式条目。
         if (input.dataset.defaultShown) delete input.dataset.traitSelected;
       });
@@ -7218,6 +7146,7 @@
       if (window.AibpCardImages?.unchanged(extraGrid, [currentApostle, currentApostleLevel(),
         aibpImageIndexRevision, heliosMode(), piles[currentApostle].traits,
         piles[currentApostle].hiddenTraits, [...hiddenExtraCardSrcs], piles[currentApostle].special,
+        currentApostle === "TITAN_X" ? piles.TITAN_X.feint?.active : null,
         piles[currentApostle].traits.map((card) => window.AibpCardImages.sourceFor(traitCardSrc(currentApostle, card)))])) return false;
       window.AIBP_BOSS_TRAIT_RULES?.renderSummary(document, currentApostle, currentApostleLevel(),
         window.AIBP_BOSS_LEVEL_DATA, piles[currentApostle]);
@@ -7265,6 +7194,16 @@
       }
       const candidates = [];
       let loaded = 0;
+
+      if (currentApostle === "TITAN_X") {
+        (piles.TITAN_X.feint?.active || []).forEach(card => {
+          candidates.push({ src: cardSrc(card), alt: "生效中的状态变招",
+            className: "c45-active-feint-trait" });
+        });
+        const reminder = piles.TITAN_X.special?.titanX?.kratosReminder;
+        if (reminder) candidates.push({ src: cardSrc(reminder), alt: "心理游戏（奎托斯池提醒）",
+          className: "c45-kratos-reminder-trait", kratosReminder: true });
+      }
 
       extraGrid.replaceChildren();
       if (aibpImageIndex === null) showImageIndexFailure(extraGrid);
@@ -7314,17 +7253,20 @@
           if (selectedTraitKeys.has(key) || hiddenTraitKeys.has(key)) return;
           candidates.push({ src: card.src, alt: traitCardLabel(card),
             className: isLargeTraitCard(currentApostle, card) ? "panel-image" : "" });
-        } else if (["O", "X"].includes(card.level) && !hiddenExtraCardSrcs.has(card.src)) {
+        } else if (["O", "X"].includes(card.level) && !hiddenExtraCardSrcs.has(card.src)
+          && (!(currentApostle === "HYPERTIME_ORACLE" && card.type === "AI" && card.level === "X")
+            || (piles[currentApostle].selectedExtraCards || []).includes(card.src))) {
           candidates.push({ src: card.src, alt: `${card.type} ${card.level} ${card.index}` });
         }
       });
 
-      candidates.forEach(({ src, alt, className = "" }) => {
+      candidates.forEach(({ src, alt, className = "", kratosReminder = false }) => {
         const img = document.createElement("img");
         img.decoding = "async";
         img.fetchPriority = "low";
         img.alt = alt || src.split("/").pop();
         img.className = className;
+        if (kratosReminder) img.dataset.titanXKratosReminder = "1";
         img.onload = () => {
           loaded += 1;
           enableOptionalCardBack(img, src);
@@ -7411,7 +7353,6 @@
         bpViewTabs.appendChild(button);
       });
 
-      chimeraDamageTarget.classList.toggle("show", isChimera());
       addSwDamage2Button.classList.toggle("show", isChimera());
       removeSwDamage2Button.classList.toggle("show", isChimera());
       addLabyrinthaurosSpecialBpButton.classList.toggle("show", isLabyrinthauros());
@@ -7939,6 +7880,8 @@
           count: Math.max(1, Math.floor(Number(item.count) || 1)),
           autoLevelBonus: item.autoLevelBonus || "",
           autoLevelBonusContributions: { ...item.autoLevelBonusContributions },
+          label: item.demidjinnWishArmor ? item.label
+            : automaticTokenContribution(item, "evasionDice") > 0 ? "额外闪避骰" : "",
           perHit: isPerHitTokenStack(item)
         }));
     }
@@ -7967,6 +7910,13 @@
           img.src = tokenSrc(item.file);
           img.alt = item.file;
           tokenItem.appendChild(img);
+
+          if (item.label) {
+            const label = document.createElement("div");
+            label.className = "token-condition-label";
+            label.textContent = item.label;
+            tokenItem.appendChild(label);
+          }
 
           if (item.count > 1) {
             const badge = document.createElement("div");
@@ -8080,6 +8030,10 @@
 
     function openZoomForImage(img) {
       if (!shouldZoomImage(img)) return;
+      if (img.dataset.titanXKratosReminder && window.C45Specials?.openTitanXKratosReminder) {
+        window.C45Specials.openTitanXKratosReminder();
+        return;
+      }
       // 面板上有两张完整大卡时走面板切换；面板上的 Token 图不算面板本身。
       if (img.classList.contains("panel-image") && img.closest("#panelWrap") && openPanelZoom()) return;
       const isBpImage = Boolean(img.closest("#bpGrid, #bpDrawPreview"));
@@ -8091,7 +8045,7 @@
         moveContext: moveContextFromImage(img),
         tokenContext: tokenContextFromImage(img),
         cardTokens: cardTokenType ? currentPanelCardTokens(cardTokenType) : [],
-        noticeImages: isBpImage ? currentBpNoticeImages() : []
+        noticeImages: isBpImage ? currentBpNoticeImages() : cardTokenType === "AI" ? currentAiNoticeImages() : []
       });
     }
 
@@ -8100,6 +8054,30 @@
       if (img.closest("#aiGrid, #aiDrawPreview, #routineWrap, #signatureWrap")) return "AI";
       if (img.closest("#extraGrid") && img.classList.contains("panel-image")) return "AI";
       return "";
+    }
+
+    function currentAiNoticeImages() {
+      if (currentApostle === "DRAGON_OF_PHOBOS") {
+        const level = currentApostleLevel();
+        const notices = [{
+          title: "背后攻击",
+          text: level >= 3
+            ? "身后攻击：忽略闪避投掷，你立即被吞噬（死亡）。"
+            : "身后攻击：忽略闪避投掷，全部自动命中。"
+        }];
+        if (level >= 4) notices.push({
+          title: "黑灯瞎火",
+          text: "如果你完全没有光照 X（Light X）关键词，你总是视作被从身后攻击。"
+        });
+        return notices;
+      }
+      if (isChimera()) {
+        return [
+          { src: "ps/CHIMERA_METASTASIOS/CHIMERA_METASTASIOS_TR_I_002.jpg", alt: "来势汹汹特性卡" },
+          { src: "ps/CHIMERA_METASTASIOS/CHIMERA_METASTASIOS_TR_I_001.jpg", alt: "黏糊留痕特性卡" }
+        ];
+      }
+      return [];
     }
 
     function currentBpNoticeImages() {
@@ -8183,6 +8161,15 @@
         img.alt = item.text || item.file;
 
         tokenItem.appendChild(img);
+        const conditionLabel = item.demidjinnWishArmor ? item.label
+          : automaticTokenContribution(item, "evasionDice") > 0 ? "额外闪避骰" : "";
+        if (conditionLabel) {
+          if (item.demidjinnWishArmor) tokenItem.title = "每张符合条件的愿望状态卡另 +1 AT";
+          const label = document.createElement("div");
+          label.className = "token-condition-label";
+          label.textContent = conditionLabel;
+          tokenItem.appendChild(label);
+        }
         if ((Number(item.count) || 0) > 1) {
           const badge = document.createElement("div");
           badge.className = "panel-token-count";
@@ -8566,20 +8553,9 @@
         discardAiPending(false);
       }, {
         aiComboActions: hasAiCombo(),
-        noticeLayout: "sides",
+        noticeLayout: drawnApostle === chimeraName ? "sides" : "",
         cardTokens: currentPanelCardTokens("AI"),
-        noticeImages: drawnApostle === chimeraName
-          ? [
-              {
-                src: "ps/CHIMERA_METASTASIOS/CHIMERA_METASTASIOS_TR_I_002.jpg",
-                alt: "来势汹汹特性卡"
-              },
-              {
-                src: "ps/CHIMERA_METASTASIOS/CHIMERA_METASTASIOS_TR_I_001.jpg",
-                alt: "黏糊留痕特性卡"
-              }
-            ]
-          : []
+        noticeImages: currentAiNoticeImages()
       });
     }
 
@@ -9032,12 +9008,6 @@
       }
     });
 
-    bpDamageTargetSelect.addEventListener("change", () => {
-      if (isChimera()) {
-        currentBpView = currentBpDamageView();
-        renderAibpCards();
-      }
-    });
     viewDeckOrderToggle?.addEventListener("change", () => {
       renderAibpCards();
       scheduleSecondScreenSnapshot();
@@ -9225,7 +9195,7 @@
   <script src="ps/other/resouce/bp_resource_map.js" defer></script>
   <script src="ps/other/resouce/bp_resource_map_c1_c3.js" defer></script>
   <script src="ps/other/resouce/bp_resource_map_c4_c5.js?v=20260730e" defer></script>
-  <script src="c45_specials.js?v=20261011-ai-combo2-startup" defer></script>
+  <script src="c45_specials.js?v=20261012-aibp-fixes" defer></script>
   <script src="bp_loot_calculator_addon.js?v=20261010-loot-number-buttons1" defer></script>
   <script src="../story/data/english-source-data.js?v=20261011-english4" defer></script>
   <script src="../assets/ato-terms.js?v=20261011-ai-combo-terms1" defer></script>

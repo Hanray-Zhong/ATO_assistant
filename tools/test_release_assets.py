@@ -101,6 +101,10 @@ def check_release_notes_files(failures: list[str]) -> None:
             failures.append(f"公告文件名不符合 v<版本>.md：{path.name}")
             continue
         text = read(path)
+        if path.name == "v3.6.2.md":
+            if text.strip() != "修正了aibp bug":
+                failures.append(f"{path.name} 必须只包含用户指定的 AIBP 修复公告")
+            continue
         if path.name in {"v2.1.0.md", "v2.1.1-rc.1.md"}:
             expected = "更新内容涉及重大剧透，因此不做介绍。\n\n建议 C4 及以后玩家更新。\n\n请 C4 及以后玩家同时更新资源包。"
             if text.strip() != expected:

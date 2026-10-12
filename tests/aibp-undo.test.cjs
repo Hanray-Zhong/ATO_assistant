@@ -37,9 +37,9 @@ function harness(storage = new Map()) {
     renderExtraCards() {}, renderPanelTokens() {}, panelWrap: { querySelector() {} },
     battleMapControl: { render() {}, reset() {} }, window: { confirm: () => true },
     initialState, applyBurdenInitialLinkedPromotion() {}, applyCurrentApostleLevelBonuses() {}, setSecondScreenMode() {},
-    isChimera: () => ctx.currentApostle === 'CHIMERA', bpDamageTargetSelect: { value: 'damage1' },
+    isChimera: () => ctx.currentApostle === 'CHIMERA',
     shuffleCards: (cards) => cards.slice().reverse(), cardSrc: () => '',
-    currentPanelCardTokens: () => [], currentBpNoticeImages: () => [], chimeraName: 'CHIMERA',
+    currentPanelCardTokens: () => [], currentBpNoticeImages: () => [], currentAiNoticeImages: () => [], chimeraName: 'CHIMERA',
     scryDialog: { dataset: { scryType: 'AI' } }, scryCountInput: { value: '2' },
     scrySetup: {}, scryCards: {}, scryStartButton: {}, scryTopButton: {}, scryBottomButton: {}, scryShuffleButton: {}, scryDiscardButton: {}, scryRemoveButton: {}, renderScryCards() {},
   });
@@ -223,24 +223,24 @@ test('legacy heal saves and undo snapshots merge into the existing removed pile'
   assert.equal(ctx.currentBpView, '移除');
 });
 
-test('Chimera heal uses only the selected damage stack, including special wounds', () => {
+test('Chimera heal uses the regular damage stack and preserves second damage', () => {
   const { ctx } = harness();
   ctx.currentApostle = 'CHIMERA';
   ctx.piles.CHIMERA = initialState();
   ctx.piles.CHIMERA.BP.damage1 = [{ special: 'SW' }];
   ctx.piles.CHIMERA.BP.damage2 = [{ special: 'DW' }];
-  ctx.bpDamageTargetSelect.value = 'damage2';
+  ctx.currentBpView = '第二损伤堆';
   ctx.healBp();
-  assert.equal(ctx.piles.CHIMERA.BP.damage1.length, 1);
-  assert.equal(ctx.piles.CHIMERA.BP.damage2.length, 0);
+  assert.equal(ctx.piles.CHIMERA.BP.damage1.length, 0);
+  assert.equal(ctx.piles.CHIMERA.BP.damage2.length, 1);
   assert.equal(ctx.currentBpView, '移除');
-  assert.equal(ctx.currentBpDamageSummary().total, 1);
+  assert.equal(ctx.currentBpDamageSummary().total, 2);
   ctx.healBp();
   assert.equal(ctx.undoStacks.CHIMERA.length, 1);
-  ctx.bpDamageTargetSelect.value = 'damage1';
-  ctx.healBp();
-  assert.equal(ctx.currentBpDamageSummary().total, 0);
-  assert.equal(ctx.piles.CHIMERA.BP.removed.length, 2);
+  assert.equal(ctx.piles.CHIMERA.BP.removed.length, 1);
+  ctx.undoLastAibp('BP');
+  assert.equal(ctx.piles.CHIMERA.BP.damage1.length, 1);
+  assert.equal(ctx.piles.CHIMERA.BP.damage2.length, 1);
 });
 
 test('Titan X group heal removes the current target top wound and leaves other enemies intact', () => {
@@ -351,7 +351,7 @@ for (const boss of ['SUN_DESCENDANT', 'THE_BABELIAN_LUNACY', 'UR_FLEECE']) {
   });
 }
 
-test('drawing BP selects the damage view, including Chimera second damage', () => {
+test('drawing BP selects the damage view, including Chimera regular damage', () => {
   const { ctx } = harness();
   ctx.currentBpView = '当前';
   ctx.drawBp();
@@ -359,10 +359,9 @@ test('drawing BP selects the damage view, including Chimera second damage', () =
 
   ctx.currentApostle = 'CHIMERA';
   ctx.piles.CHIMERA = initialState();
-  ctx.bpDamageTargetSelect.value = 'damage2';
-  ctx.currentBpView = '当前';
+  ctx.currentBpView = '第二损伤堆';
   ctx.drawBp();
-  assert.equal(ctx.currentBpView, '第二损伤堆');
+  assert.equal(ctx.currentBpView, '常规损伤堆');
 });
 
 test('combined BP counter is cleared when a different BP is drawn', () => {

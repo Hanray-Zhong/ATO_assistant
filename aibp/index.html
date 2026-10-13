@@ -2289,7 +2289,7 @@
 
   </style>
   <link rel="stylesheet" href="c45_specials.css?v=20260926-titan-group-layout1">
-  <link rel="stylesheet" href="battle_map_control.css?v=20261011-thumbnail1">
+  <link rel="stylesheet" href="battle_map_control.css?v=20261012-side-width1">
   <link rel="stylesheet" href="../api/cycle-theme.css">
   <script src="../assets/theme.js?v=20261001" defer></script>
   <link rel="stylesheet" href="editorial.css?v=20261010-traits-dialog2">
@@ -2502,10 +2502,16 @@
                   </select>
                 </label>
                 <p class="battle-map-los-stats" data-battle-map-los-stats hidden></p>
-                <label class="battle-map-los-field" data-battle-map-los-reach-field hidden>
-                  攻击距离（射程 = 移速 + 攻击距离）
-                  <input type="number" min="0" max="20" step="1" value="1" data-battle-map-los-reach aria-label="攻击距离">
-                </label>
+                <div class="battle-map-los-field" data-battle-map-los-reach-field hidden>
+                  <span>攻击距离（射程 = 移速 + 攻击距离）</span>
+                  <!-- 扁平步进器：不画浏览器原生的上下箭头，靠 −／+ 与直接输入。 -->
+                  <div class="battle-map-los-stepper">
+                    <button type="button" data-battle-map-los-reach-down aria-label="攻击距离 −1" title="攻击距离 −1">−</button>
+                    <input type="number" min="0" max="20" step="1" value="1" data-battle-map-los-reach aria-label="攻击距离">
+                    <button type="button" data-battle-map-los-reach-up aria-label="攻击距离 +1" title="攻击距离 +1">+</button>
+                    <span class="battle-map-los-stepper-unit" aria-hidden="true">格</span>
+                  </div>
+                </div>
                 <label class="battle-map-los-field" data-battle-map-los-facing-field hidden>
                   朝向（黄色箭头，盲区在其反向）
                   <select data-battle-map-los-facing aria-label="朝向">
@@ -2700,16 +2706,17 @@
   <script src="../map/map-tile-tags.js"></script>
   <script src="ps/CHIMERA_METASTASIOS/bp_status_map.js"></script>
   <!-- Token 名单写在本页脚本里（tokenFileNames），不再加载 ps/other/token/token_manifest.js。 -->
-  <script src="../ss/terrain-data.js?v=20260930-hidden-bosses1"></script>
-  <script src="battle_los.js?v=20260819-hekaton4-labyrinthauros-start1"></script>
-  <script src="battle_map_control.js?v=20260926-titan-x-group1"></script>
+  <!-- Boss 等级属性表先于 ss/terrain-data.js 加载：始徒移速直接取该表当前等级的值。 -->
+  <script src="boss-levels-data.js?v=20261012-los-speed1"></script>
+  <script src="../ss/terrain-data.js?v=20261012-los-speed1"></script>
+  <script src="battle_los.js?v=20261012-los-speed1"></script>
+  <script src="battle_map_control.js?v=20261012-los-speed1"></script>
   <script src="b4d7e218.js?v=20260926-hidden-ready2"></script>
   <script src="c9f0a6d3.js?v=20261011-panel-trait1"></script>
   <script src="5158e31a.js?v=20260926-blackbeak-manual4"></script>
   <script src="7c2e9a40.js?v=20260926-group-trait1"></script>
   <script src="boss-search.js?v=20261011-boss-language1"></script>
   <script src="custom_traits.js?v=20260930-custom-trait4-lisu-simhei"></script>
-  <script src="boss-levels-data.js?v=20261010-boss-levels1"></script>
   <script src="boss-trait-rules.js?v=20261010-traits-dialog2"></script>
   <script>
     const apostles = [

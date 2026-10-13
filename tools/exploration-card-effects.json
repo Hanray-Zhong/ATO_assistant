@@ -1053,7 +1053,8 @@
      "badge": ""
     },
     {
-     "text": "Lose -1 Titan.",
+     "text": "Lose -1 Argo Fate.",
+     "correctedFrom": "titan",
      "badge": "Allied"
     }
    ],
@@ -1084,7 +1085,8 @@
      "badge": ""
     },
     {
-     "text": "Lose -1 Titan.",
+     "text": "Lose -1 Argo Fate.",
+     "correctedFrom": "titan",
      "badge": "Allied"
     }
    ],
@@ -2168,7 +2170,8 @@
      "badge": ""
     },
     {
-     "text": "Lose -1 Titan.",
+     "text": "Lose -1 Argo Fate.",
+     "correctedFrom": "titan",
      "badge": "Allied"
     }
    ],
@@ -2199,7 +2202,8 @@
      "badge": ""
     },
     {
-     "text": "Lose -3 Titan.",
+     "text": "Lose -3 Argo Fate.",
+     "correctedFrom": "titan",
      "badge": "ICON(figure)/7+"
     }
    ],
@@ -4793,7 +4797,8 @@
      "badge": ""
     },
     {
-     "text": "Lose -1 Titan.",
+     "text": "Lose -1 Argo Fate.",
+     "correctedFrom": "titan",
      "badge": "Allied"
     }
    ],
@@ -4824,7 +4829,8 @@
      "badge": ""
     },
     {
-     "text": "Lose -1 Titan.",
+     "text": "Lose -1 Argo Fate.",
+     "correctedFrom": "titan",
      "badge": "Allied"
     }
    ],
@@ -7852,7 +7858,8 @@
      "badge": ""
     },
     {
-     "text": "Gain +1 ICON(dark glyph with a wide crossbar and tapering stem).",
+     "text": "Gain +1 Progress Token.",
+     "correctedFrom": "unresolved",
      "badge": "Allied"
     },
     {

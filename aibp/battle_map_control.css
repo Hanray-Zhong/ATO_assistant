@@ -62,7 +62,8 @@
   max-width: 1180px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 230px;
+  /* 右栏放视线判断与地形工具：工具按钮两列 + 攻击距离步进器都需要宽度。 */
+  grid-template-columns: minmax(0, 1fr) 290px;
   gap: 14px;
   align-items: start;
 }
@@ -302,8 +303,63 @@
 }
 .battle-map-los-body { margin-top: 8px; display: grid; gap: 8px; }
 .battle-map-los-field { display: grid; gap: 4px; font-size: 0.9em; }
-.battle-map-los-field select,
-.battle-map-los-field input { width: 100%; }
+.battle-map-los-field[hidden] { display: none; }
+.battle-map-los-field select { width: 100%; }
+/* 攻击距离：扁平步进器。数字框不画原生上下箭头，靠 −／+ 或直接输入。 */
+.battle-map-los-stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+.battle-map-los-stepper button {
+  flex: 0 0 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 1px solid rgba(199, 173, 114, 0.30);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--gold, #c7ad72);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+.battle-map-los-stepper button:hover:not(:disabled) {
+  border-color: rgba(199, 173, 114, 0.62);
+  background: rgba(199, 173, 114, 0.14);
+}
+.battle-map-los-stepper button:disabled { opacity: 0.35; cursor: default; }
+.battle-map-los-stepper input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid rgba(199, 173, 114, 0.30);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--text, #f0ede4);
+  font: inherit;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+  box-shadow: none;
+}
+.battle-map-los-stepper input::-webkit-inner-spin-button,
+.battle-map-los-stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.battle-map-los-stepper input:focus-visible {
+  outline: none;
+  border-color: rgba(199, 173, 114, 0.7);
+}
+.battle-map-los-stepper-unit {
+  flex: 0 0 auto;
+  align-self: center;
+  color: var(--muted, #aaa396);
+  font-size: 0.85em;
+}
 .battle-map-los-hint { margin: 0; font-size: 0.8em; opacity: 0.8; }
 .battle-map-los-path-tools {
   display: grid;

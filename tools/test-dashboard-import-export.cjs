@@ -20,6 +20,7 @@ const assert = require('node:assert/strict');
 
 const ROOT = path.resolve(__dirname, '..');
 const src = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+const attachmentsSource = fs.readFileSync(path.join(ROOT, 'assets/record-attachments.js'), 'utf8');
 
 function between(start, end) {
   const a = src.indexOf(start);
@@ -134,8 +135,10 @@ async function main() {
       loadFullCampaign: async () => { flushedFirst.push('loadFullCampaign'); return { sections: serverSections }; },
       archive: { activeProfileId: 'p', profiles: { p: { note: 'memory-new' } } },
       downloadJsonPayload: (payload) => { captured = payload; },
-      window: { setTimeout() {} },
+      // 导出失败路径会调 window.alert 报错；不桩掉的话这里抛 TypeError，把真正的失败原因盖掉。
+      window: { setTimeout() {}, alert: (message) => { flushedFirst.push(`alert:${message}`); } },
     });
+    vm.runInContext(attachmentsSource, ctx);
     vm.runInContext(jsonHelpers.map(extractFunction).join('\n'), ctx);
     vm.runInContext(backupPrelude + between('async function exportState()', 'function importStateFile('), ctx);
     await ctx.exportState();
@@ -164,8 +167,10 @@ async function main() {
       loadFullCampaign: async () => ({ sections: { dashboard: { activeProfileId: 'p', profiles: { p: { note: 'server-stale' } } } } }),
       archive: { activeProfileId: 'p', profiles: { p: { note: 'memory-newest' } } },
       downloadJsonPayload: (payload) => { captured = payload; },
-      window: { setTimeout() {} },
+      // 导出失败路径会调 window.alert 报错；不桩掉的话这里抛 TypeError，把真正的失败原因盖掉。
+      window: { setTimeout() {}, alert: () => {} },
     });
+    vm.runInContext(attachmentsSource, ctx);
     vm.runInContext(jsonHelpers.map(extractFunction).join('\n'), ctx);
     vm.runInContext(backupPrelude + between('async function exportState()', 'function importStateFile('), ctx);
     await ctx.exportState();

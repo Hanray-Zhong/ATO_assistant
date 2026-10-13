@@ -10,6 +10,9 @@
   --accent-soft: #f0e3d7;
   --gold: #9a682c;
   --done: #346447;
+  /* 主控台用到的危险色（提醒条的红色左条 / 战斗标签底色 / 更新失败提示）。
+     此前这里没定义 --danger，dashboard.css 里 var(--danger) 全部静默失效。 */
+  --danger: #9d332c;
   --shadow: 0 12px 36px rgb(39 60 50 / 8%);
 }
 

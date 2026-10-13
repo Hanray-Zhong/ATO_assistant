@@ -961,8 +961,11 @@
   }
 
   // 算出一份「该画什么」的描述，不碰 DOM。terrainApi = window.BattleTerrain。
-  function buildLosOverlay(map, losState, terrainApi, apostle) {
+  // options.speed：主控台把当前等级的移速（读自 Boss 等级属性表）显式传进来，第二屏照
+  // 快照里的同一个数重算，两屏因此不会因为等级来源不同而漂移。
+  function buildLosOverlay(map, losState, terrainApi, apostle, options) {
     const state = losState || {};
+    const settings = options || {};
     const empty = {
       active: false, source: [], sourceKeys: new Set(), obscuring: [], walls: { h: [], v: [] },
       wallsIgnored: false, visible: [], blocked: [], inRange: [], blindspots: new Set(),
@@ -972,11 +975,17 @@
     if (!state.active || !map || !terrainApi) return empty;
 
     const profile = state.source === "apostle"
-      ? (terrainApi.getApostleProfile(apostle, map.startLevel) || null)
+      ? (terrainApi.getApostleProfile(apostle, settings.level ?? map.startLevel) || null)
       : null;
-    const size = profile ? profile.size : 1;
+    // 移速以调用方给的为准（主控台读的是 Boss 等级属性表里的当前等级）；没给才退回
+    // 面板数据里按 map.startLevel 算出来的那份。∞ / 0 都是合法值，只排除 undefined/NaN。
+    const speedOverride = Number(settings.speed);
+    const profileWithSpeed = profile && Number.isFinite(speedOverride)
+      ? { ...profile, speed: speedOverride }
+      : profile;
+    const size = profileWithSpeed ? profileWithSpeed.size : 1;
     const occ = buildOccluders(terrainApi.getMapTiles(map), terrainApi);
-    const mazesense = !!(profile && profile.mazesense
+    const mazesense = !!(profileWithSpeed && profileWithSpeed.mazesense
       && occ.labyrinthTiles && occ.labyrinthTiles.size);
 
     const source = losSourceCells(state.anchor, size);
@@ -1000,14 +1009,14 @@
     // 朝向：未手动指定时跟随该图的初始朝向。0/90/180/270 = 上/右/下/左。
     // 只有使徒有朝向（泰坦是单格、无盲区，也没有面板朝向），所以泰坦来源给 null，
     // 渲染层据此不画箭头。盲区由朝向推出（正后方一排），改朝向盲区自动跟着转。
-    const facing = profile
+    const facing = profileWithSpeed
       ? (state.facing === null || state.facing === undefined
         ? (terrainApi.getInitialFacing(apostle, map.apostleFacing, map.setupId, map.startLevel, map.startPositionId) ?? 0)
         : Number(state.facing))
       : null;
 
     const base = {
-      active: true, source, sourceKeys, obscuring, occ, profile, mazesense, facing, elevated,
+      active: true, source, sourceKeys, obscuring, occ, profile: profileWithSpeed, mazesense, facing, elevated,
       walls: occ.walls || { h: [], v: [] },
       wallsIgnored: mazesense,
       dim: state.dim !== false,
@@ -1017,7 +1026,7 @@
 
     const center = losSourceCenter(state.anchor, size);
     const blindspots = new Set(
-      (profile && profile.blindspot
+      (profileWithSpeed && profileWithSpeed.blindspot
         ? terrainApi.getBlindspotCells(apostle, map.startLevel, center, facing)
         : []
       ).map(({ row, column }) => cellKey(column, row))
@@ -1026,13 +1035,13 @@
     const { grid } = computeLOSMap(source, occ, {
       elevated,
       blindspots,
-      alwaysLos: profile ? profile.alwaysLos : false,
+      alwaysLos: profileWithSpeed ? profileWithSpeed.alwaysLos : false,
       mazesense,
     });
     // 移速 ∞ 时全图都在射程内，铺满一层反而盖住视线结果，所以不画射程框。
     const reach = Number.isFinite(Number(state.reach)) ? Number(state.reach) : 1;
-    const range = profile && state.showRange && Number.isFinite(profile.speed)
-      ? computeRangeMap(source, profile.speed, reach)
+    const range = profileWithSpeed && state.showRange && Number.isFinite(profileWithSpeed.speed)
+      ? computeRangeMap(source, profileWithSpeed.speed, reach)
       : null;
     // 距离数字跟着同一个开关但**不**依赖射程层：泰坦与移速 ∞ 的使徒画不出紫框，
     // 数字仍然有用，所以单独算一份。
@@ -1052,12 +1061,12 @@
         if (range && range.grid[key]) inRange.push({ c, r, hasLos: isVisible });
       }
     }
-    const movement = profile && state.source === "apostle" && state.moveTarget
+    const movement = profileWithSpeed && state.source === "apostle" && state.moveTarget
       ? computeApostleMovePaths({
         sourceAnchor: state.anchor,
         targetAnchor: state.moveTarget,
         size,
-        speed: profile.speed,
+        speed: profileWithSpeed.speed,
         reach,
         facing,
       })

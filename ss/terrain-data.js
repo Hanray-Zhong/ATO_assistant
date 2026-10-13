@@ -866,6 +866,8 @@ const BattleTerrain = (() => {
   //   size      始徒图示的脚印边长（1/2/3），与图示后方 R 格的个数一致。
   //   speed     按等级的移速（等级框中间那格，靴子图标）。Infinity = ∞；
   //             0 = 面板留空，即不可移动（巴比伦疯塔）。
+  //             这只是**兜底**：正常运行时移速读 Boss 等级属性表（AIBP_BOSS_LEVEL_DATA，
+  //             见 aibp/BOSS-LEVELS.md），本表用于第二屏/旧存档这类拿不到等级表的地方。
   //   blindspot 面板基本特质列里有"盲点"划眼图标时为 true。盲区就是图示中同时带
   //             R 与划眼图标的那排格子 —— 正后方紧贴脚印、宽度等于脚印宽度。
   //             P39：盲点与攀爬点永远都不视作在始徒的视线内。
@@ -1178,18 +1180,64 @@ const BattleTerrain = (() => {
     return ({ 0: "up", 90: "right", 180: "down", 270: "left" })[cardinalFacing(value)] || "up";
   }
 
-  // 取某等级的使徒数据。speed 取该等级；等级缺失时取不超过它的最高等级
-  // （例如 5 级的 UR_FLEECE 只印了 I 级，就一直用 I 级）。
+  // 从 Boss 等级属性表读某一级的移速。表中「∞」= 无穷大，「—」/ 0 / 空白 = 不可移动。
+  // 表里没有这个 Boss（泰坦 X 之外的隐藏 Boss、旧数据）或这一级时返回 null，交给下面的
+  // 兜底值；表分级只认字符串键，所以 0 级（部分 Boss 印了 0 级面板）也照读。
+  function movementFromBossLevels(apostle, level) {
+    const data = typeof globalThis === "undefined" ? null : globalThis.AIBP_BOSS_LEVEL_DATA;
+    const boss = data?.bosses?.[String(apostle || "").toUpperCase()];
+    if (!boss || !boss.levels) return null;
+    const row = boss.levels[String(level)];
+    if (!row || !row.stats) return null;
+    return parseBossMovement(row.stats.movement);
+  }
+
+  // 表格里的移速原文：数字、数字字符串、"∞"（含 "*" 修饰）、"—"（不可移动）、空值。
+  function parseBossMovement(value) {
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    const text = String(value ?? "").trim();
+    if (!text) return null;
+    if (text.includes("∞")) return Infinity;
+    if (text === "—" || text === "-" || text === "--") return 0;
+    const numeric = Number(text.replace(/\*/g, ""));
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  // 表里这个 Boss 有哪些等级键（数字字符串，0 级也算）。
+  function bossLevelKeys(apostle) {
+    const data = typeof globalThis === "undefined" ? null : globalThis.AIBP_BOSS_LEVEL_DATA;
+    const levels = data?.bosses?.[String(apostle || "").toUpperCase()]?.levels;
+    return levels ? Object.keys(levels).map(Number).filter((value) => Number.isFinite(value)) : [];
+  }
+
+  // 想查的等级。levelNumber 把 0 当成"没给"退回 1（它服务于建图那套逻辑），但等级表里
+  // 百臂巨人这类 Boss 真的印了 0 级面板，所以这里自己认 0——「0」「0 级」都算 0。
+  function candidateLevel(level) {
+    if (typeof level === "number" && Number.isFinite(level)) return level;
+    const text = String(level ?? "").trim();
+    if (/^0(?:\s*级)?$/.test(text)) return 0;
+    return levelNumber(level);
+  }
+
+  // 取某等级的使徒数据。移速以 Boss 等级属性表为准（该表由 Excel 生成，见
+  // aibp/BOSS-LEVELS.md）：先找不超过请求等级的最高一级，找不到再用最低一级。
+  // 表还没加载（第二屏不引这张表、旧存档、单独跑 ss/terrain-data.js）或表里查不到这一级
+  // 时，退回 apostleProfiles 里手抄的同名数值，行为与以前一致。
   function getApostleProfile(apostle, level) {
-    const profile = apostleProfiles[String(apostle || "").toUpperCase()];
+    const normalized = String(apostle || "").toUpperCase();
+    const profile = apostleProfiles[normalized];
     if (!profile) return null;
-    const wanted = levelNumber(level);
-    const levels = Object.keys(profile.speed).map(Number).sort((a, b) => a - b);
-    const match = levels.filter((value) => value <= wanted).pop();
-    const key = match !== undefined ? match : levels[0];
+    const wanted = candidateLevel(level);
+    const sortNumeric = (values) => values.slice().sort((a, b) => a - b);
+    const bossLevels = bossLevelKeys(normalized);
+    const levels = bossLevels.length ? sortNumeric(bossLevels) : sortNumeric(Object.keys(profile.speed).map(Number));
+    if (!levels.length) return null;
+    const below = levels.filter((value) => value <= wanted);
+    const key = below.length ? below[below.length - 1] : levels[0];
+    const tableSpeed = movementFromBossLevels(normalized, key);
     return {
       size: profile.size,
-      speed: profile.speed[key],
+      speed: tableSpeed === null ? profile.speed[key] : tableSpeed,
       speedLevel: key,
       blindspot: !!profile.blindspot,
       alwaysLos: !!profile.alwaysLos,

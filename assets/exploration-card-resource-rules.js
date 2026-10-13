@@ -65,7 +65,9 @@
   // tell: no faction status recorded, or the card prints a picture badge).
   function conditionMet(condition, context) {
     if (!condition) return true;
-    if (condition.type !== "diplomacy") return null;
+    if (condition.type !== "diplomacy") {
+      return context?.conditionRules?.conditionMet(condition, context) ?? null;
+    }
     const items = diplomacyItems(context);
     if (!items.length) return null;
     const bonus = Number(condition.bonus);
@@ -110,13 +112,21 @@
     };
   }
 
+  // 卡面 "Gain 1 A or B resource"：数据里 resource 存的是首选，alternatives 是两个候选
+  // （见 tools/scan_exploration_resource_cards.py）。规划时拆成两个可选分支，让玩家选
+  // 实际拿到哪一个。
+  function alternativesOf(grant) {
+    if (!Array.isArray(grant?.alternatives) || grant.alternatives.length < 2) return [];
+    return grant.alternatives.filter((item) => item && item.key);
+  }
+
   function formatBonus(value) {
     const number = Number(value);
     if (!Number.isFinite(number)) return "";
     return number > 0 ? `+${number}` : String(number);
   }
 
-  function resolveActiveGrants(card, activeIndexes, context) {
+  function resolveActiveGrants(card, activeIndexes, context, selectedKey = "") {
     const grants = Array.isArray(card?.grants) ? card.grants : [];
     const replaced = new Set();
     activeIndexes.forEach((index) => {
@@ -128,7 +138,8 @@
       if (replaced.has(index)) return;
       const grant = grants[index];
       if (!grant || !grant.resource) return;
-      result.push(grantEntry(grant, grant.condition, context));
+      const selected = alternativesOf(grant).find(item => item.key === selectedKey);
+      result.push(grantEntry(selected ? { ...grant, resource: selected.key } : grant, grant.condition, context));
     });
     return result;
   }
@@ -137,7 +148,7 @@
     const items = Array.isArray(card?.manual) ? card.manual : [];
     return items
       .map((item) => {
-        const state = conditionMet(item.condition, context);
+        const state = conditionMet(item.condition || (item.badge ? { type: "icon", badge: item.badge } : null), context);
         return {
           text: item.text || "",
           badge: item.badge || "",
@@ -163,8 +174,9 @@
    *   manual   effects nobody can apply automatically
    *   variants [{ id, label, badge, grants, manual }] when a printed condition
    *            cannot be resolved from the live state
+   *   blocked / blockedGrants when the context prohibits gains for this stack
    */
-  function plan(card, context = {}) {
+  function planWithoutPileRestrictions(card, context = {}) {
     if (card?.diplomacyFaction) {
       context = { ...context, diplomacyFaction: card.diplomacyFaction };
     }
@@ -183,14 +195,25 @@
 
     const activeIndexes = [];
     const unknownIndexes = [];
+    const choiceIndexes = [];
     grants.forEach((grant, index) => {
       const state = conditionMet(grant.condition, context);
-      if (state === true) activeIndexes.push(index);
-      else if (state === null && grant.condition) unknownIndexes.push(index);
+      if (state === true) {
+        if (alternativesOf(grant).length) choiceIndexes.push(index);
+        else activeIndexes.push(index);
+      } else if (state === null && grant.condition) unknownIndexes.push(index);
     });
 
+    // 二选一的那条按"选中的候选"算一份完整方案：其它已生效收益照旧，只有这条换成
+    // 候选资源。selectedKey 为空表示还没选（基础方案里就不放这条）。
+    const activeIndexesFor = (selectedKey) => [
+      ...activeIndexes,
+      ...choiceIndexes.filter((index) => selectedKey
+        && alternativesOf(grants[index]).some((item) => item.key === selectedKey)),
+    ];
+
     const baseGrants = resolveActiveGrants(card, activeIndexes, context);
-    if (!unknownIndexes.length) {
+    if (!unknownIndexes.length && !choiceIndexes.length) {
       return {
         status: "auto",
         grants: baseGrants,
@@ -202,7 +225,8 @@
     }
 
     const variants = [];
-    if (baseGrants.length) {
+    // 二选一时不给"按基础值结算"：那等于替玩家选（或什么都不给），必须让玩家点一个。
+    if (baseGrants.length && !choiceIndexes.length) {
       variants.push({
         id: "base",
         label: `按基础值结算${baseGrants.length ? `（${summarize(baseGrants, context)}）` : ""}`,
@@ -211,6 +235,19 @@
         manual: variantManual(card, context, ""),
       });
     }
+    choiceIndexes.forEach((index) => {
+      const grant = grants[index];
+      const all = alternativesOf(grant).map((item) => grantName({ resource: item.key }, context));
+      alternativesOf(grant).forEach((alternative) => {
+        variants.push({
+          id: `choice:${index}:${alternative.key}`,
+          label: `获得 ${grantName({ resource: alternative.key }, context)}（${all.join(" / ")} 二选一）`,
+          badge: grant.condition?.badge || "",
+          grants: resolveActiveGrants(card, activeIndexesFor(alternative.key), context, alternative.key),
+          manual: variantManual(card, context, grant.condition?.badge || ""),
+        });
+      });
+    });
     unknownIndexes.forEach((index) => {
       const grant = grants[index];
       const extra = grantEntry(grant, grant.condition, context);
@@ -242,11 +279,58 @@
       grants: baseGrants,
       manual: manual.filter((item) => item.active),
       variants: uniqueVariants,
-      unresolved: unknownIndexes.map((index) => ({
-        badge: grants[index].condition?.badge || "",
-        label: conditionLabel(grants[index].condition),
-      })),
+      unresolved: [
+        ...unknownIndexes.map((index) => ({
+          badge: grants[index].condition?.badge || "",
+          label: conditionLabel(grants[index].condition),
+        })),
+        ...choiceIndexes.map((index) => ({
+          badge: grants[index].condition?.badge || "",
+          label: `${grants[index].name}：二选一，请选择本次获得的资源`,
+        })),
+      ],
       summary: summarize(baseGrants, context),
+    };
+  }
+
+  // A card such as Cycle IV #9326 can prohibit gains for its whole stack.
+  // Apply that restriction after resolving replacements and diplomacy, so a
+  // conditional branch cannot put a forbidden gain back into the write plan.
+  function plan(card, context = {}) {
+    const result = planWithoutPileRestrictions(card, context);
+    if (context.blockResourceGains !== true) return result;
+
+    const blockedGrants = [];
+    const seen = new Set();
+    const restrictGrants = (grants) => grants.filter((grant) => {
+      if (Number(grant.amount) > 0) {
+        const key = JSON.stringify([grant.resource, grant.amount, grant.rareName, grant.badge]);
+        if (!seen.has(key)) {
+          seen.add(key);
+          blockedGrants.push(grant);
+        }
+        return false;
+      }
+      // Zero changes also need no settlement button. Resource losses remain.
+      return Number(grant.amount) < 0;
+    });
+    const grants = restrictGrants(result.grants);
+    const variants = result.variants.map((variant) => {
+      const variantGrants = restrictGrants(variant.grants);
+      const label = variant.id === "base"
+        ? `按基础值结算（${summarize(variantGrants, context)}）`
+        : `${variant.label.split("：")[0]}：${summarize(variantGrants, context)}`;
+      return { ...variant, grants: variantGrants, label };
+    }).filter((variant) => variant.grants.length);
+    const status = result.status === "choice" && !variants.length ? "auto" : result.status;
+    return {
+      ...result,
+      status,
+      grants,
+      variants,
+      blocked: true,
+      blockedGrants,
+      summary: `本堆禁止获得资源${grants.length ? `；${summarize(grants, context)}` : ""}`,
     };
   }
 
@@ -389,6 +473,7 @@
     kindOf,
     isResourceCard,
     hasResourceEffect,
+    diplomacyItems,
     conditionMet,
     conditionLabel,
     plan,

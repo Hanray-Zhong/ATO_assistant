@@ -60,6 +60,7 @@ BADGE_CONDITIONS = {
     "denounced": ("only", -2),
     "denounced-": ("atMost", -2),
     "at war": ("atMost", -3),
+    "aligned with nemesis": ("atMost", -3),
 }
 
 BADGE_LABELS = {
@@ -74,6 +75,7 @@ NAME_ALIASES = {
     "priests": "priests",
     "rare": "rare",
     "raw ambrosia": "rawAmbrosia",
+    "promised futures carcass": "promisedFuturesCarcass",
     "rare resource": "rare",
     "rares": "rare",
 }
@@ -139,6 +141,31 @@ def normalize_name(name: str) -> str:
     return cleaned
 
 
+def resolve_alternatives(cycle_id: str, name: str, cycles: dict) -> list[dict] | None:
+    """卡面 "Gain 1 A or B resource" = 玩家二选一。
+
+    返回 [{key, name}, ...] 表示两个候选都在本循环记录表里；否则返回 None（交给
+    resolve_resource 按普通单名资源处理/报未识别）。"""
+    parts = [part.strip() for part in re.split(r"\s+or\s+", name, flags=re.I) if part.strip()]
+    if len(parts) != 2:
+        return None
+    resources = cycles[cycle_id]["resources"]
+    resolved = []
+    for part in parts:
+        lowered = normalize_name(part)
+        key = next((k for k, entry in resources.items() if normalize_name(entry["en"]) == lowered), None)
+        if key is None:
+            key = NAME_ALIASES.get(lowered)
+            if key not in resources:
+                key = None
+        if key is None or key == "rare":
+            return None
+        resolved.append({"key": key, "name": part})
+    if resolved[0]["key"] == resolved[1]["key"]:
+        return None
+    return resolved
+
+
 def resolve_resource(cycle_id: str, name: str, cycles: dict) -> tuple[str | None, str, bool]:
     """Return (resource key, note, is_rare_named)."""
     lowered = normalize_name(name)
@@ -168,12 +195,36 @@ def split_sentences(text: str) -> list[str]:
 
 
 def parse_grant_sentence(sentence: str) -> list[tuple[int, str]] | None:
-    match = GRANT_RE.search(sentence)
+    # Words and commas inside ICON(...) describe a picture, not a resource
+    # clause. Mask those spans while finding the real trailing resource word.
+    masked = re.sub(r"ICON\([^)]*\)", lambda m: "@" * len(m.group()), sentence, flags=re.I)
+    match = GRANT_RE.search(masked)
     if not match:
         return None
-    body = re.sub(r"\s+and\s+", ", ", match.group(1), flags=re.I)
+    body = sentence[match.start(1):match.end(1)]
+    depth = 0
+    separators = []
+    for i, char in enumerate(body):
+        if char == "(": depth += 1
+        elif char == ")": depth -= 1
+        elif char == "," and depth == 0: separators.append(i)
+    pieces = []
+    start = 0
+    for i in separators:
+        pieces.append(body[start:i]); start = i + 1
+    pieces.append(body[start:])
+    separated = []
+    for piece in pieces:
+        icons = []
+        def protect(match):
+            icons.append(match.group())
+            return f"__ICON_{len(icons)-1}__"
+        protected = re.sub(r"ICON\([^)]*\)", protect, piece, flags=re.I)
+        for part in re.split(r"\s+and\s+", protected, flags=re.I):
+            separated.append(re.sub(r"__ICON_(\d+)__", lambda m: icons[int(m.group(1))], part))
+    pieces = separated
     parsed: list[tuple[int, str]] = []
-    for piece in [part.strip() for part in body.split(",") if part.strip()]:
+    for piece in [part.strip() for part in pieces if part.strip()]:
         amount_match = AMOUNT_RE.match(piece)
         if not amount_match:
             return None
@@ -204,6 +255,7 @@ def scan_card(card: dict, cycles: dict) -> dict:
     manual: list[dict] = []
     unresolved: list[str] = []
     warnings: list[str] = []
+    attached_manual: list[dict] = []
 
     for line in card["lines"]:
         text = str(line.get("text") or "").strip()
@@ -241,7 +293,31 @@ def scan_card(card: dict, cycles: dict) -> dict:
                     manual.append({"text": sentence, "badge": sentence_badge, "condition": condition})
                     continue
                 is_replacement = "instead" in sentence.lower()
+                masked = re.sub(r"ICON\([^)]*\)", lambda m: "@" * len(m.group()), sentence, flags=re.I)
+                match = GRANT_RE.search(masked)
+                suffix = sentence[match.end():].strip() if match else ""
+                if re.match(r"^and\s+", suffix, re.I):
+                    suffix = re.sub(r"^and\s+", "", suffix, flags=re.I)
+                    if re.match(r"^[+\-]?\d+\s", suffix):
+                        suffix = "Gain " + suffix
+                    attached_manual.append({"text": suffix, "badge": sentence_badge, "condition": condition, "requiresResource": True})
+                # 卡面写 "Gain 1 A or B resource"：这是玩家二选一，不是一个叫
+                # "A or B" 的资源。两个候选都在记录表里就记成 alternatives，
+                # 由规划器拆成两个可选分支（见 exploration-card-resource-rules.js）。
                 for amount, name in parsed:
+                    alternatives = resolve_alternatives(cycle_id, name, cycles) if not is_replacement else None
+                    if alternatives:
+                        grants.append({
+                            "resource": alternatives[0]["key"],
+                            "name": name,
+                            "amount": amount,
+                            "condition": condition,
+                            "replaces": None,
+                            "rareName": "",
+                            "alternatives": alternatives,
+                        })
+                        continue
+
                     key, note, named = resolve_resource(cycle_id, name, cycles)
                     grant = {
                         "resource": key,
@@ -261,7 +337,11 @@ def scan_card(card: dict, cycles: dict) -> dict:
                 continue
             stripped = re.sub(r"\s+", "", sentence)
             if len(re.findall(r"[A-Za-z]", stripped)) >= 3 or CJK_RE.search(stripped):
-                manual.append({"text": sentence, "badge": sentence_badge, "condition": condition})
+                manual.append({"text": sentence, "badge": sentence_badge, "condition": condition,
+                               **({"correctedFrom": line["correctedFrom"]} if line.get("correctedFrom") else {})})
+
+    # Append mixed resource effects so existing manual:N receipt IDs stay stable.
+    manual.extend(attached_manual)
 
     # An "instead" grant replaces the unconditional grant printed just before it
     # for the same resource.
@@ -325,7 +405,7 @@ def scan_card(card: dict, cycles: dict) -> dict:
             "full" if kind == "resource-only"
             else ("partial" if clean else "none")
         ),
-        "diplomacyMenu": has_diplomacy_menu(clean, manual),
+        "diplomacyMenu": card["key"] in NAMED_DIPLOMACY_FACTIONS or has_diplomacy_menu(clean, manual),
         "grants": clean,
         "unresolvedGrants": [g for g in grants if not g.get("resource")],
         "manual": manual,
@@ -402,6 +482,9 @@ def serialize_card(card: dict) -> dict:
         }
         if grant.get("rareName"):
             entry["rareName"] = grant["rareName"]
+        if grant.get("alternatives"):
+            # "Gain 1 A or B" 是玩家二选一：两个候选都写出去，规划器会拆成两个分支。
+            entry["alternatives"] = grant["alternatives"]
         grants.append(entry)
     return {
         "key": card["key"],
@@ -412,13 +495,20 @@ def serialize_card(card: dict) -> dict:
         "kind": card["kind"],
         "autoSettle": card["autoSettle"],
         "diplomacyMenu": card["diplomacyMenu"],
-        "diplomacyFaction": NAMED_DIPLOMACY_FACTIONS.get(card["key"], ""),
+        **({"diplomacyFaction": NAMED_DIPLOMACY_FACTIONS[card["key"]]}
+           if card["key"] in NAMED_DIPLOMACY_FACTIONS else {}),
         "grants": grants,
         "manual": [
-            {"text": item["text"], "badge": item["badge"], "condition": item["condition"]}
+            {"text": item["text"], "badge": item["badge"], "condition": item["condition"],
+             **({"requiresResource": True} if item.get("requiresResource") else {}),
+             **({"correctedFrom": item["correctedFrom"]} if item.get("correctedFrom") else {})}
             for item in card["manual"]
         ],
         "unresolved": card["unresolved"],
+        "unresolvedEffects": [
+            {"text": g.get("unresolved", ""), "condition": g.get("condition"), "badge": (g.get("condition") or {}).get("badge", "")}
+            for g in card["unresolvedGrants"]
+        ],
     }
 
 
@@ -426,10 +516,13 @@ def grant_text(card: dict) -> str:
     parts = []
     for grant in card["grants"]:
         condition = grant["condition"]
+        name = grant["name"]
+        if grant.get("alternatives"):
+            name = "或".join(alt["name"] for alt in grant["alternatives"]) + "（二选一）"
         if condition:
-            parts.append(f"{condition.get('label', condition.get('badge', '条件'))} → {grant['name']} ×{grant['amount']}")
+            parts.append(f"{condition.get('label', condition.get('badge', '条件'))} → {name} ×{grant['amount']}")
         else:
-            parts.append(f"{grant['name']} ×{grant['amount']}")
+            parts.append(f"{name} ×{grant['amount']}")
     for grant in card["unresolvedGrants"]:
         parts.append(f"（未识别）{grant['name']} ×{grant['amount']}")
     return "；".join(parts)

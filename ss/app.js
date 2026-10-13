@@ -754,8 +754,15 @@ function renderBattleCoordinates(map) {
   }
 }
 
-// 视线 / 射程 / 距离标注。主控台只传参数（来源锚点、攻击距离、朝向、高地与开关），
-// 这里用 aibp 那份同样的 battle_los.js 重算并绘制，所以两屏逐格一致。
+// 视线 / 射程 / 距离标注。主控台只传参数（来源锚点、攻击距离、移速、朝向、高地与开关），
+// 这里用 aibp 那份同样的 battle_los.js 重算并绘制，所以两屏逐格一致。移速直接读快照
+// 里的 los.speed（主控台按 Boss 等级属性表的当前等级算好），第二屏不查等级表。
+// 快照过 JSON，∞ 被编码成「∞」字符串，这里还原成 Infinity 再交给引擎。
+function snapshotSpeed(value) {
+  if (value === "∞") return Infinity;
+  return Number.isFinite(value) ? value : undefined;
+}
+
 function renderBattleLos(apostle, map, los) {
   if (!elements.battleLosLayer) return;
   if (!window.BattleLOS || !los?.active) {
@@ -763,7 +770,9 @@ function renderBattleLos(apostle, map, los) {
     elements.battleLosLayer.hidden = true;
     return;
   }
-  const overlay = window.BattleLOS.buildLosOverlay(map, los, window.BattleTerrain, apostle);
+  const speed = snapshotSpeed(los.speed);
+  const options = speed === undefined ? {} : { speed };
+  const overlay = window.BattleLOS.buildLosOverlay(map, los, window.BattleTerrain, apostle, options);
   window.BattleLOS.renderLosOverlay(elements.battleLosLayer, overlay);
 }
 

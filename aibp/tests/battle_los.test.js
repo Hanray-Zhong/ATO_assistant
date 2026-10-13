@@ -980,6 +980,8 @@ test("blindspot cells off the board edge are dropped", () => {
   assert.deepStrictEqual(BT.getBlindspotCells("TITAN_X", 1, { row: 1, column: 10 }, 180), [{ row: 2, column: 10 }]);
 });
 
+// 这一段跑的是没有 Boss 等级表时的兜底路径（ss/terrain-data.js 的 apostleProfiles.speed；
+// 见下面的「movement speed comes from the Boss level table」）。
 test("speed falls back to the highest printed level at or below the request", () => {
   assert.strictEqual(BT.getApostleProfile("LABYRINTHAUROS", 1).speed, 6);
   assert.strictEqual(BT.getApostleProfile("LABYRINTHAUROS", 4).speed, 7);
@@ -990,6 +992,45 @@ test("speed falls back to the highest printed level at or below the request", ()
   assert.strictEqual(BT.getApostleProfile("THE_BABELIAN_LUNACY", 1).speed, 0);
   assert.strictEqual(BT.getApostleProfile("TITAN_X", 1).speed, Infinity);
   assert.strictEqual(BT.getApostleProfile("NOT_AN_APOSTLE", 1), null);
+});
+
+// 移速的权威来源是 Boss 等级属性表（aibp/boss-levels-data.js，由 Excel 生成，见
+// aibp/BOSS-LEVELS.md）。上面那些断言跑的是**没有**这张表时的兜底路径
+// （ss/terrain-data.js 里手抄的 apostleProfiles.speed）；下面这一段把表挂上再重新加载
+// 一份全新副本，验证运行时真的读表、而且按"不超过请求等级的最高一级"取值。
+const bossLevelsPath = path.join(__dirname, "..", "boss-levels-data.js");
+const terrainDataPath = path.join(__dirname, "..", "..", "ss", "terrain-data.js");
+
+test("movement speed comes from the Boss level table's current level", () => {
+  const previousData = globalThis.AIBP_BOSS_LEVEL_DATA;
+  const previousCache = require.cache[terrainDataPath];
+  delete require.cache[terrainDataPath];
+  globalThis.AIBP_BOSS_LEVEL_DATA = require(bossLevelsPath);
+  try {
+    const FRESH = require(terrainDataPath);
+    // 4 级的百臂巨人在表里是 7，兜底表也写 7，但 9 级是 11 —— 兜底表根本没有 9 级，
+    // 所以这条只有真读表才过得去。
+    assert.strictEqual(FRESH.getApostleProfile("HEKATON", 9).speed, 11);
+    assert.strictEqual(FRESH.getApostleProfile("HEKATON", 9).speedLevel, 9);
+    assert.strictEqual(FRESH.getApostleProfile("LABYRINTHAUROS", 9).speed, 9);
+    assert.strictEqual(FRESH.getApostleProfile("THE_BURDEN", 5).speed, 11);
+    // 表里没有请求等级时退到不超过它的最高一级。
+    assert.strictEqual(FRESH.getApostleProfile("HEKATON", 12).speed, 11);
+    assert.strictEqual(FRESH.getApostleProfile("HEKATON", 12).speedLevel, 9);
+    // 百臂巨人印了 0 级面板，0 级要按 0 级那行（而不是被 levelNumber 抬成 1 级）。
+    assert.strictEqual(FRESH.getApostleProfile("HEKATON", 0).speedLevel, 0);
+    // 表中「—」= 不可移动；「∞」= 无穷大，两种写法都要认。
+    assert.strictEqual(FRESH.getApostleProfile("THE_BABELIAN_LUNACY", 6).speed, 0);
+    assert.strictEqual(FRESH.getApostleProfile("TITAN_X", 6).speed, Infinity);
+    // 面板尺寸、盲区、特殊视线仍读手抄的 apostleProfiles。
+    assert.strictEqual(FRESH.getApostleProfile("HEKATON", 9).size, 2);
+    assert.strictEqual(FRESH.getApostleProfile("MIDASCORE", 9).alwaysLos, true);
+  } finally {
+    globalThis.AIBP_BOSS_LEVEL_DATA = previousData;
+    delete require.cache[terrainDataPath];
+    if (previousCache) require.cache[terrainDataPath] = previousCache;
+    else require(terrainDataPath);
+  }
 });
 
 test("alwaysLos is set exactly for the four traits that ignore blocking", () => {

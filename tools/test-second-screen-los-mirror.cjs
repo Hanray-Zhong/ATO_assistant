@@ -98,6 +98,7 @@ const losSelectors = [
   "[data-battle-map-los-layer]", "[data-battle-map-los-control]", "[data-battle-map-los-toggle]",
   "[data-battle-map-los-body]", "[data-battle-map-los-source]", "[data-battle-map-los-hint]",
   "[data-battle-map-los-stats]", "[data-battle-map-los-reach]", "[data-battle-map-los-reach-field]",
+  "[data-battle-map-los-reach-down]", "[data-battle-map-los-reach-up]",
   "[data-battle-map-los-facing]", "[data-battle-map-los-facing-field]", "[data-battle-map-los-dim]",
   "[data-battle-map-los-elevated]", "[data-battle-map-los-range]",
   "[data-battle-map-los-path-tools]", "[data-battle-map-los-path-source]",
@@ -140,6 +141,7 @@ require(path.join(repo, "aibp", "battle_map_control.js"));
 
 let map = null;
 let apostle = "CYCLONUS"; // 2×2、有盲区、移速 7（有限）→ 射程框与盲区都画得出来
+let level = 1; // 当前使徒等级；移速按它去 Boss 等级属性表里查
 let losChangeCount = 0;
 const control = window.BattleMapControl.create({
   root: { querySelector: (sel) => el[sel] },
@@ -147,7 +149,7 @@ const control = window.BattleMapControl.create({
   cardAssetBase: "../ss/terrain-cards",
   openImageZoom: () => {},
   getApostle: () => apostle,
-  getLevel: () => 1,
+  getLevel: () => level,
   getMap: () => map,
   setMap: (value) => { map = value; },
   onLosChange: () => { losChangeCount += 1; },
@@ -166,28 +168,87 @@ assert.equal(control.getLosSnapshot().active, true);
 assert.equal(control.getLosSnapshot().anchor, null);
 ok("开启视线会通知第二屏，快照转为 active");
 
-// 点版图定锚点：屏幕 (475, 375) → 第 10 列、第 8 行附近
-el["[data-battle-map-los-board-click]"] = null;
+// 移速不再写死在 ss/terrain-data.js 里，而是读 Boss 等级属性表（AIBP_BOSS_LEVEL_DATA）
+// 的当前等级。注入一份最小等级表就能验证：升级要立刻改移速，且快照要带上同一个数，
+// 否则第二屏会按建图时的初始等级画出不一样的射程层。
+globalThis.AIBP_BOSS_LEVEL_DATA = {
+  bosses: { CYCLONUS: { levels: { "1": { stats: { movement: 7 } }, "4": { stats: { movement: 8 } } } } },
+};
+level = 4;
+el["[data-battle-map-los-dim]"].dispatch("change"); // 借一次改动触发重画
+assert.equal(window.BattleTerrain.getApostleProfile("CYCLONUS", 4).speed, 8,
+  "使徒移速应读 Boss 等级属性表的当前等级");
+assert.equal(control.getLosSnapshot().speed, 8, "快照要带上查表得到的移速");
+assert.match(el["[data-battle-map-los-stats]"].textContent, /移速 8（4 级）/,
+  "面板数据行要显示移速及其取自哪一级");
+ok("移速取自 Boss 等级属性表的当前等级，并写进第二屏快照");
+
+// 表里查不到的等级（回退到不超过它的最高一级）与 ∞ 用字符串编码，两头都要还原一致。
+globalThis.AIBP_BOSS_LEVEL_DATA.bosses.CYCLONUS.levels["1"].stats.movement = "∞";
+level = 1;
+el["[data-battle-map-los-dim]"].dispatch("change");
+const infiniteSnapshot = control.getLosSnapshot();
+assert.equal(infiniteSnapshot.speed, "∞", "∞ 要编码成 JSON 安全的字符串");
+assert.match(el["[data-battle-map-los-stats]"].textContent, /射程 全图/,
+  "移速 ∞ 时射程应为全图");
+assert.equal(window.BattleTerrain.getApostleProfile("CYCLONUS", 1).speed, Infinity,
+  "字符串 ∞ 要还原成 Infinity");
+ok("移速 ∞ 在快照里用字符串编码，主屏仍按 Infinity 处理");
+
+// 后面的镜像比对需要有限的移速（要画出射程紫框），把表改回 7；表里查不到的等级仍会
+// 回退到不超过它的最高一级。
+globalThis.AIBP_BOSS_LEVEL_DATA.bosses.CYCLONUS.levels["1"].stats.movement = 7;
+level = 1;
+el["[data-battle-map-los-dim]"].dispatch("change");
+
+// 玩家点版图设置来源锚点并通知第二屏
 aibpBoard.dispatch("click", { clientX: 475, clientY: 375 });
-assert.equal(losChangeCount, 2);
+assert.equal(losChangeCount, 5);
 const anchored = control.getLosSnapshot();
 assert.ok(anchored.anchor && Number.isFinite(anchored.anchor.column));
 assert.equal(anchored.moveTarget, null);
 assert.ok(aibpLosLayer.children.length > 0, "定了锚点就该画出标注");
 ok("点版图设置来源锚点并通知第二屏");
 
-// 改攻击距离 / 高地 / 暗化 / 朝向，每次都要通知
+// 改攻击距离 / 高地 / 暗化 / 朝向，每次都要通知。计数用增量断言，免得前面加一条
+// 断言就要重算一串魔数。
+const beforeTweaks = losChangeCount;
 el["[data-battle-map-los-reach]"].value = "3";
 el["[data-battle-map-los-reach]"].dispatch("input");
 assert.equal(control.getLosSnapshot().reach, 3);
+assert.equal(losChangeCount - beforeTweaks, 1, "改攻击距离要推送第二屏");
 el["[data-battle-map-los-facing]"].value = "270";
 el["[data-battle-map-los-facing]"].dispatch("change");
 assert.equal(control.getLosSnapshot().facing, 270);
+assert.equal(losChangeCount - beforeTweaks, 2, "改朝向要推送第二屏");
 el["[data-battle-map-los-dim]"].checked = false;
 el["[data-battle-map-los-dim]"].dispatch("change");
 assert.equal(control.getLosSnapshot().dim, false);
-assert.equal(losChangeCount, 5);
+assert.equal(losChangeCount - beforeTweaks, 3, "改暗化要推送第二屏");
 ok("攻击距离 / 朝向 / 暗化的每次改动都会推送第二屏");
+
+// 攻击距离改成扁平步进器后，−／+ 与直接输入必须走同一条路：改 losState.reach →
+// 重画 → 推第二屏；到边界要置灰。
+const beforeStepper = losChangeCount;
+el["[data-battle-map-los-reach-down]"].dispatch("click", { stopped: true });
+assert.equal(control.getLosSnapshot().reach, 2, "− 应把攻击距离减 1");
+assert.equal(losChangeCount - beforeStepper, 1, "步进也要推送第二屏");
+assert.equal(el["[data-battle-map-los-reach]"].value, "2", "步进后输入框要跟着显示同一个数");
+el["[data-battle-map-los-reach-up]"].dispatch("click", { stopped: true });
+assert.equal(control.getLosSnapshot().reach, 3, "+ 应把攻击距离加 1");
+assert.equal(losChangeCount - beforeStepper, 2);
+el["[data-battle-map-los-reach]"].value = "0";
+el["[data-battle-map-los-reach]"].dispatch("input");
+assert.equal(el["[data-battle-map-los-reach]"].disabled, false);
+assert.equal(el["[data-battle-map-los-reach-down]"].disabled, true, "下限 0 时 − 应置灰");
+assert.equal(el["[data-battle-map-los-reach-up]"].disabled, false);
+el["[data-battle-map-los-reach]"].value = ""; // 空值不该被当成 0 记下来
+el["[data-battle-map-los-reach]"].dispatch("input");
+assert.equal(control.getLosSnapshot().reach, 0);
+assert.equal(el["[data-battle-map-los-reach-up]"].disabled, false);
+el["[data-battle-map-los-reach]"].dispatch("blur");
+assert.equal(el["[data-battle-map-los-reach]"].value, "0", "失焦要把空框拉回合法整数");
+ok("攻击距离步进器：−／+ 与输入同步，边界置灰，空值不落在 state 上");
 
 // 关掉再打开：anchor 应被清掉，快照回到 active:false
 el["[data-battle-map-los-toggle]"].dispatch("click");

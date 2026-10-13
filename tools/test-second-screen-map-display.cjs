@@ -7,7 +7,10 @@ const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'map/app.js'), 'utf8');
 const php = fs.readFileSync(path.join(root, 'api/campaign-state.php'), 'utf8');
-const payloadFunction = php.slice(php.indexOf('function public_second_screen_payload('), php.indexOf('function current_user('));
+// public_second_screen_payload() 要调 second_screen_theme() → normalize_theme_setting()，
+// 两个都是它上面的顶层函数。以前只截到 current_user，payload 里一加 'theme' 字段就
+// Fatal error（php 退出码 255）——把这两个依赖一并带上。
+const payloadFunction = php.slice(php.indexOf('function normalize_theme_setting('), php.indexOf('function current_user('));
 function extract(name) {
   const start = source.search(new RegExp(`(?:async )?function ${name}\\(`));
   assert(start >= 0, name);

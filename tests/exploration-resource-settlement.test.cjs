@@ -7,6 +7,12 @@ const vm = require('node:vm');
 const root = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'index.html'), 'utf8').replace(/\r\n/g, '\n');
 const rules = require('../assets/exploration-card-resource-rules.js');
+const effectRules = require('../assets/exploration-card-effects.js');
+const deckRules = require('../assets/exploration-card-rules.js');
+const optionRules = require('../assets/exploration-card-options.js');
+const delayRules = require('../assets/exploration-card-delays.js');
+const choiceRules = require('../assets/exploration-card-choices.js');
+const conditions = require('../assets/exploration-card-conditions.js');
 
 function fn(name) {
   const match = source.match(new RegExp('^    (?:async )?function ' + name + '\\([^]*?^    }', 'm'));
@@ -28,6 +34,25 @@ function loadDataset() {
 
 const dataset = loadDataset();
 
+function drawnEntry(id, name, pile = 0) {
+  return { id, name, day: 12, removal: 'keep', draw: 'single', pile };
+}
+
+function textOf(node) {
+  return [node.textContent, node.innerHTML, ...node.children.map(textOf)].filter(Boolean).join(' ');
+}
+
+function buttonNamed(block, label) {
+  const button = block.buttons.find((item) => typeof label === 'string'
+    ? item.textContent === label : label.test(item.textContent));
+  assert.ok(button, `button ${label} exists in ${textOf(block)}`);
+  return button;
+}
+
+function resourceButtons(block) {
+  return block.children.find((node) => node.className === 'exploration-settle-actions').buttons;
+}
+
 class Element {
   constructor(tag) {
     this.tag = tag;
@@ -37,12 +62,41 @@ class Element {
     this.textContent = '';
     this.innerHTML = '';
     this.disabled = false;
+    this.hidden = false;
+    this.checked = false;
+    this.value = '';
+    this.dataset = {};
+    this.style = {};
+    this.attributes = {};
+    this.parentNode = null;
   }
-  append(...children) { this.children.push(...children); }
-  appendChild(child) { this.children.push(child); return child; }
+  // 真 DOM 的插入是"搬移"：同一个节点不会同时挂在两个父节点下。
+  _detach(node) {
+    if (node && node.parentNode) {
+      const at = node.parentNode.children.indexOf(node);
+      if (at >= 0) node.parentNode.children.splice(at, 1);
+    }
+  }
+  append(...children) { children.forEach((child) => this.appendChild(child)); }
+  appendChild(child) { this._detach(child); child.parentNode = this; this.children.push(child); return child; }
+  prepend(...children) {
+    [...children].reverse().forEach((child) => {
+      this._detach(child);
+      child.parentNode = this;
+      this.children.unshift(child);
+    });
+  }
   replaceWith(replacement) { this.replacement = replacement; }
-  addEventListener(type, listener) { this.listeners[type] = listener; }
-  setAttribute(name, value) { this[name] = value; }
+  // 旧测试直接调 `listeners.change()`／`listeners.click()`：这里把注册的监听器
+  // 直接暴露成函数（同一个事件只留最后一个，和之前的桩一致）。
+  addEventListener(type, listener) {
+    this.listeners[type] = (...args) => { listener(...args); return undefined; };
+  }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return Object.hasOwn(this.attributes, name) ? this.attributes[name] : null; }
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null;
+  }
   querySelectorAll(selector) {
     const found = [];
     const walk = (node) => {
@@ -62,35 +116,68 @@ class Element {
 
 function settleHarness(options = {}) {
   const written = [];
+  const alerts = [];
+  const confirmations = [];
   let diplomacyBonus = options.diplomacyBonus === undefined ? 1 : options.diplomacyBonus;
   const labels = { minoians: '米诺斯人', sunheirs: '太阳后裔' };
   // A stand-in for the record section of the save file: writes land here so a
   // second action (the undo) sees the value the first one produced.
-  const server = { record: { resources: { ...(options.record || {}) } }, revision: 1 };
+  const cycle = options.cycle || 'c1';
+  const server = { record: options.fullRecord || { cycle, resources: { ...(options.record || {}) } }, revision: 1 };
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  const drawState = {
+    drawPile: [], activePiles: options.activePiles || [[], []], temporaryRemoved: [], permanentRemoved: [],
+    history: [], discardPile: [], current: null,
+  };
   const ctx = vm.createContext({
     window: {
       ATO_EXPLORATION_CARD_RESOURCES: dataset,
       ATO_EXPLORATION_RESOURCE_RULES: rules,
+      ATO_EXPLORATION_EFFECT_RULES: effectRules,
+      ATO_EXPLORATION_OPTION_RULES: optionRules,
+      ATO_EXPLORATION_DELAY_RULES: delayRules,
+      ATO_EXPLORATION_CHOICE_RULES: choiceRules,
+      ATO_EXPLORATION_CONDITIONS: conditions,
+      alert: (message) => { alerts.push(message); },
+      confirm: (message) => {
+        confirmations.push(message);
+        return typeof options.confirm === 'function' ? options.confirm(message) : options.confirm !== false;
+      },
     },
-    document: { createElement: (tag) => new Element(tag) },
+    document: {
+      createElement: (tag) => new Element(tag),
+      createDocumentFragment: () => new Element('#fragment'),
+      createTextNode: (text) => { const node = new Element('#text'); node.textContent = text; return node; },
+    },
     console,
-    state: { exploration: {}, day: 12 },
-    currentCycleConfig: () => ({ id: options.cycle || 'c1' }),
-    currentMapFactions: () => (options.factions === undefined ? ['minoians'] : options.factions),
+    state: {
+      exploration: { drawStateByCycle: { [cycle]: drawState } },
+      day: options.day || 12,
+      unlockedTech: options.unlockedTech || null,
+      // currentMapFactions() 读这里（真实实现，不打桩）：AG 当前格所在的派系列表。
+      mapCurrentTileFactions: options.factions === undefined ? ['minoians'] : options.factions,
+      mapSnapshot: { currentTileId: '', currentTileFactions: [] },
+      mapCurrentTileFactionLabels: [],
+    },
+    archive: { activeProfileId: 'test-campaign' },
+    sessionUser: { id: 'test-account' },
+    currentCycleConfig: () => ({ id: cycle }),
     mapFactionLabel: (cycleId, factionId) => labels[factionId] || factionId,
-    diplomacyValue: (_cycleId, factionId) => Object.hasOwn(options.diplomacyByFaction || {}, factionId)
-      ? options.diplomacyByFaction[factionId] : diplomacyBonus,
+    diplomacyValue: (_cycleId, factionId, record) => typeof options.diplomacyFromRecord === 'function'
+      ? options.diplomacyFromRecord(factionId, record)
+      : Object.hasOwn(options.diplomacyByFaction || {}, factionId)
+        ? options.diplomacyByFaction[factionId] : diplomacyBonus,
     diplomacyStatus: (_cycleId, value) => ({ label: '外交状态', bonus: value }),
     normalizeCampaignDay: (value) => Math.max(0, Math.floor(Number(value) || 0)),
     isPlainObject: (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
     escapeHtml: (value) => String(value ?? ''),
     readLocalArgoRecord: () => ({}),
-    readServerArgoRecord: async () => ({ available: true, record: server.record, revision: server.revision }),
-    mergeArgoRecords: (base) => ({ ...(base || {}) }),
+    readServerArgoRecord: async () => ({ available: true, record: clone(server.record), revision: server.revision }),
+    mergeArgoRecords: (base) => clone(base || {}),
     writeServerArgoRecord: async (record) => {
       server.record = record;
       server.revision += 1;
-      written.push(record);
+      written.push(clone(record));
       return { conflict: false, revision: server.revision };
     },
     appendRecordSyncLog: () => {},
@@ -98,6 +185,29 @@ function settleHarness(options = {}) {
     recordSyncChannel: null,
     saveState: () => {},
     renderFlow: () => {},
+    ownsDashboardWriteLease: () => true,
+    ensureExplorationDrawState: () => drawState,
+    explorationRules: () => deckRules,
+    getSelectedExplorationIds: () => [...drawState.drawPile, ...drawState.activePiles.flat().map((entry) => entry.id)],
+    shuffleList: (entries) => [...entries],
+    getStoryHref: ({ battle }) => `./story/index.html?book=${cycle}&module=battle&battle=${encodeURIComponent(battle || '')}`,
+    refreshCachedArgoRecord: async () => { ctx.cachedArgoRecord = clone(server.record); },
+    todayTrackIcons: () => [],
+    // 探索步骤整体渲染：卡面/标签/特殊规则与折叠菜单都用最简桩，够跑通结构断言。
+    getExplorationCornerNumber: () => '',
+    getExplorationCardImageStyle: () => '',
+    getExplorationCardTag: () => ({ removal: 'keep', draw: 'single' }),
+    getExplorationSpecialRule: () => null,
+    getDestructionPileIds: () => [],
+    getDestructionCardIds: () => [],
+    addCardToDestructionPile: () => {},
+    createHiddenExplorationMenu: () => new Element('details'),
+    createExplorationDestructionTools: () => null,
+    applyExplorationSelection: () => {},
+    restoreDefaultExplorationSelection: () => {},
+    drawExplorationCard: () => {},
+    settleExplorationDraw: () => {},
+    completeExplorationDraw: () => {},
   });
   vm.runInContext([
     fn('explorationResourceRules'),
@@ -109,22 +219,920 @@ function settleHarness(options = {}) {
     fn('explorationSettlementStore'),
     fn('getExplorationSettlement'),
     fn('clearExplorationSettlements'),
+    fn('explorationEffectRules'),
+    fn('explorationOptionRules'),
+    fn('explorationChoiceRules'),
+    fn('explorationDelayRules'),
+    fn('explorationDayNumber'),
+    fn('explorationRoundId'),
+    fn('scheduleExplorationDelay'),
+    fn('registerAutomaticExplorationDelays'),
+    fn('processExplorationDelays'),
+    fn('completeTimelineBattle'),
+    'let explorationSettlePrepared = false;',
+    fn('markExplorationSettlePrepared'),
+    fn('completeExplorationDraw'),
+    fn('createExplorationDelayCardTools'),
+    fn('createDelayedExplorationStepTools'),
+    fn('createExplorationOptionTools'),
+    ...[...source.matchAll(/^    (?:async )?function (explorationCondition\w*)\(/gm)].map((match) => fn(match[1])),
+    fn('explorationEffectState'),
+    fn('explorationDashboardTracks'),
+    fn('syncExplorationDashboardTracks'),
+    fn('explorationBatchReceipt'),
+    ...(source.includes('function syncExplorationBatchReceipt(') ? [fn('syncExplorationBatchReceipt')] : []),
+    fn('explorationContextSnapshot'),
+    fn('explorationCardContext'),
+    fn('explorationBatchContext'),
+    fn('explorationAutomaticTitanLosses'),
+    fn('explorationSingleAutomaticEffect'),
+    fn('settleSingleExplorationEffects'),
+    fn('settleExplorationCard'),
+    fn('explorationHasRecordOperation'),
+    fn('explorationNeedsPlacement'),
+    fn('explorationPlacementText'),
+    fn('explorationManualPlacement'),
+    fn('explorationNumericOnce'),
+    fn('explorationLegacyGroupIds'),
+    fn('explorationManagedChoices'),
+    fn('explorationDelayManaged'),
+    fn('applyExplorationOperation'),
+    fn('revertExplorationOperation'),
+    fn('writeExplorationChoice'),
+    fn('applyAutomaticExploration'),
+    fn('settleExplorationDraw'),
+    fn('explorationEffectDescriptors'),
+    fn('pendingExplorationEffects'),
+    fn('mutateExplorationRecord'),
+    fn('writeExplorationRecordEffects'),
     fn('writeExplorationResourceChanges'),
+    ...(source.includes('function createExplorationEffectList(') ? [fn('createExplorationEffectList')] : []),
     fn('createExplorationSettleBlock'),
+    fn('createExplorationChoiceTools'),
+    fn('endExplorationDraw'),
+    fn('returnTemporaryExplorationCards'),
+    // 探索步骤整体渲染（归纳行放哪、派系行何时显示、两个折叠区怎么并排）
+    constant('explorationSpecialRules'),
+    constant('defaultExplorationSelections'),
+    fn('getExplorationLibrary'),
+    fn('getExplorationSpecialRule'),
+    fn('getDestructionPileIds'),
+    fn('applyExplorationSelection'),
+    fn('restoreDefaultExplorationSelection'),
+    fn('drawExplorationCard'),
+    fn('getExplorationCard'),
+    fn('createExplorationDestructionTools'),
+    fn('createHiddenExplorationMenu'),
+    fn('createExplorationTools'),
+    fn('formatSignedNumber'),
+    fn('currentMapFactions'),
+    fn('currentMapFactionStatusItems'),
+    fn('createExplorationFactionStatus'),
+    constant('mapFactionLabelsByCycle'),
+    constant('hiddenExplorationCards'),
+    constant('explorationDecks'),
   ].join('\n'), ctx);
+  // 测试要能直接改「AG 当前格所在派系」。
+  ctx.setCurrentFactions = (ids) => { ctx.state.mapCurrentTileFactions = ids; };
+  // Standalone card UI fixtures still represent an active draw, just as the real app does.
+  if (options.activePiles === undefined) {
+    const renderCard = ctx.createExplorationSettleBlock;
+    ctx.createExplorationSettleBlock = (entry, ...args) => {
+      if (!drawState.activePiles.flat().some(value => value.id === entry.id && value.day === entry.day)) drawState.activePiles[0].push(entry);
+      return renderCard(entry, ...args);
+    };
+  }
+  // index.html 里的代码会**重新赋值** cachedArgoRecord（写入成功后），所以它必须是
+  // 上下文对象上的活属性，不能只是一次性的初始值。
+  let cachedArgoRecord = clone(server.record);
+  Object.defineProperty(ctx, 'cachedArgoRecord', {
+    get: () => cachedArgoRecord,
+    set: (value) => { cachedArgoRecord = value; },
+    configurable: true,
+    enumerable: true,
+  });
   return {
     ctx,
     written,
+    alerts,
+    confirmations,
+    drawState,
+    get record() { return server.record; },
+    get cachedRecord() { return cachedArgoRecord; },
     setDiplomacy: (bonus) => { diplomacyBonus = bonus; },
+    updateServerRecord: (record) => { server.record = clone(record); server.revision += 1; },
   };
 }
 
 async function clickAndWait(button) {
-  button.listeners.click();
+  const listener = button.listeners.click;
+  if (typeof listener === 'function') listener();
+  else if (Array.isArray(listener)) listener.forEach((item) => item());
+  await flushAsync();
+}
+
+async function flushAsync() {
   for (let tick = 0; tick < 20; tick += 1) {
     await new Promise((resolve) => setImmediate(resolve));
   }
 }
+
+function nextRecord(cycle, stats = {}, resources = {}) {
+  return { cycle, resources, cycleStats: { [cycle]: {
+    fate: '0', hull: '4', crew: '3', strangers: '0', humanity: '4', paradox: '0', frozenTime: '2',
+    loopLength: '10', babelianDebt: '0', ...stats,
+    ...(cycle === 'c2' ? { crewCounters: { crew: 3, refugees: 0, captives: 0, ...stats.crewCounters } } : {}),
+  } } };
+}
+
+test('four requested Hidden Truth preserves the final Crew and settles the threshold before the Fate bonus', async () => {
+  for (const [paranoia, crew, fate, afterParanoia, afterCrew] of [
+    [2, 3, 7, 3, 3], [3, 3, 7, 1, 2], [3, 1, 7, 1, 1], [6, 1, 0, 3, 1], [3, 0, 0, 0, 0],
+  ]) {
+    const entry = drawnEntry('10306', 'Hidden Truth');
+    const h = settleHarness({ cycle: 'c5', activePiles: [[entry], []], fullRecord:
+      nextRecord('c5', { paranoia: String(paranoia), crew: String(crew), fate: String(fate) }) });
+    const block = h.ctx.createExplorationSettleBlock(entry);
+    assert.equal(h.written.length, 0, 'rendering never applies the operation');
+    await clickAndWait(buttonNamed(block, '自动结算'));
+    assert.deepEqual(h.alerts, []);
+    assert.equal(h.record.cycleStats.c5.crew, String(afterCrew));
+    assert.equal(h.record.cycleStats.c5.paranoia, String(afterParanoia));
+    assert.equal(h.ctx.pendingExplorationEffects().length, 0);
+    await h.ctx.settleExplorationCard(entry);
+    assert.equal(h.record.cycleStats.c5.paranoia, String(afterParanoia));
+    const card = dataset.cards['c5:10306'];
+    const context = h.ctx.explorationCardContext(entry, card);
+    const core = h.ctx.explorationEffectDescriptors(entry, card, context).find(item => item.id === 'conditional:hidden-truth');
+    await h.ctx.writeExplorationRecordEffects(entry, [core], context, [], true);
+    assert.equal(h.record.cycleStats.c5.paranoia, String(paranoia));
+    assert.equal(h.record.cycleStats.c5.crew, String(crew));
+    assert.equal(entry.removal, 'keep');
+  }
+});
+
+test('four requested Panic Spreads prefers Dreamwalkers and never triggers from its later Fate gain', async () => {
+  for (const paranoia of [2, 3]) {
+    const entry = drawnEntry('10310', 'Panic Spreads');
+    const record = nextRecord('c5', { paranoia: String(paranoia), fate: '5' });
+    record.titans = [{ id: 'dream', name: '梦行者', count: 2 }, { id: 'other', name: 'Other', count: 1 }];
+    const h = settleHarness({ cycle: 'c5', activePiles: [[entry], []], fullRecord: record });
+    await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '自动结算'));
+    assert.deepEqual(h.alerts, []);
+    assert.equal(h.record.titans[0].count, paranoia === 3 ? 1 : 2);
+    assert.equal(h.record.titans[1].count, 1);
+    assert.equal(h.record.cycleStats.c5.paranoia, '3');
+    await h.ctx.settleExplorationCard(entry);
+    assert.equal(h.record.titans[0].count, paranoia === 3 ? 1 : 2);
+    assert.equal(h.ctx.pendingExplorationEffects().length, 0);
+    const card = dataset.cards['c5:10310'];
+    const context = h.ctx.explorationCardContext(entry, card);
+    const core = h.ctx.explorationEffectDescriptors(entry, card, context).find(item => item.id === 'conditional:panic-spreads');
+    await h.ctx.writeExplorationRecordEffects(entry, [core], context, [], true);
+    assert.equal(h.record.titans[0].count, 2);
+    assert.equal(h.record.cycleStats.c5.paranoia, String(paranoia));
+  }
+  const entry = drawnEntry('10310', 'Panic Spreads');
+  const record = nextRecord('c5', { paranoia: '3', fate: '5' });
+  record.titans = [{ id: 'a', name: 'A', count: 1 }, { id: 'b', name: 'B', count: 1 }];
+  const h = settleHarness({ cycle: 'c5', activePiles: [[entry], []], fullRecord: record });
+  const block = h.ctx.createExplorationSettleBlock(entry);
+  assert.equal(block.descendants().filter(node => node.tag === 'select').length, 1);
+  await h.ctx.settleExplorationCard(entry);
+  assert.equal(h.record.cycleStats.c5.paranoia, '3', 'the dependent bonus waits for a required Titan choice');
+  const select = block.descendants().find(node => node.tag === 'select'); select.value = 'b';
+  await clickAndWait(buttonNamed(block, '应用到记录表'));
+  await h.ctx.settleExplorationCard(entry);
+  assert.equal(h.record.titans.length, 1);
+  assert.equal(h.record.titans[0].id, 'a');
+  assert.equal(h.record.cycleStats.c5.paranoia, '3');
+});
+
+test('four requested Drown in Fear freezes its event check before the later bonus and clears it on undo', async () => {
+  for (const before of [1, 2]) {
+    const entry = drawnEntry('10314', 'Drown in Fear');
+    const h = settleHarness({ cycle: 'c5', activePiles: [[entry], []], fullRecord: nextRecord('c5', { paranoia: String(before), fate: '5' }) });
+    await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '自动结算'));
+    assert.deepEqual(h.alerts, []);
+    assert.equal(h.record.cycleStats.c5.paranoia, '3');
+    if (before === 2) {
+      assert.match(textOf(h.ctx.createExplorationSettleBlock(entry)), /Fractures/);
+      assert.equal(h.ctx.pendingExplorationEffects().length, 2);
+      await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '已处理其余效果'));
+      await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '自动结算'));
+      assert.equal(h.record.cycleStats.c5.paranoia, '4');
+    }
+    assert.equal(h.ctx.pendingExplorationEffects().length, 0);
+    const card = dataset.cards['c5:10314'];
+    const context = h.ctx.explorationCardContext(entry, card);
+    const core = h.ctx.explorationEffectDescriptors(entry, card, context).find(item => item.id === 'conditional:drown-in-fear');
+    assert.equal(Boolean(core.remainder), before === 2, 'a later bonus must not invent an earlier event');
+    await h.ctx.writeExplorationRecordEffects(entry, [core], context, [], true);
+    assert.equal(h.record.cycleStats.c5.paranoia, String(before));
+    assert.equal(h.ctx.explorationEffectState(entry).manual[core.id], undefined);
+  }
+});
+
+test('four requested Black Sludge uses Fate OR real Refugees and requires manual Doom placement', async () => {
+  for (const [fate, refugees, expected] of [[7, 0, true], [6, 6, true], [7, 6, true], [6, 5, false], ['', 6, true], [7, '', true], ['', 5, null]]) {
+    const entry = drawnEntry('13636', 'Black Sludge');
+    const h = settleHarness({ cycle: 'c2', activePiles: [[entry], []], fullRecord:
+      nextRecord('c2', { fate: String(fate), renegade: '9', crewCounters: { refugees } }) });
+    const block = h.ctx.createExplorationSettleBlock(entry);
+    const green = block.buttons.find(button => button.textContent === '自动结算');
+    assert.equal(Boolean(green), false);
+    await h.ctx.settleExplorationCard(entry);
+    assert.equal(h.ctx.explorationDashboardTracks(h.record).doom, 0);
+    await h.ctx.settleExplorationCard(entry);
+    assert.equal(h.ctx.explorationDashboardTracks(h.record).doom, 0);
+    assert.ok(h.ctx.pendingExplorationEffects().some(text => /方向|地图|水路/.test(text)), 'physical map tasks remain pending');
+    if (expected === true) {
+      assert.match(textOf(block), /手动选择放置位置.*灾祸 \+1/);
+      await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '已手动处理完整效果'));
+      assert.ok(!h.ctx.pendingExplorationEffects().some(text => /灾祸/.test(text)));
+      assert.equal(h.ctx.explorationDashboardTracks(h.record).doom, 0);
+    }
+    assert.deepEqual(h.alerts, []);
+  }
+  const entry = drawnEntry('10314', 'Drown in Fear');
+  const h = settleHarness({ cycle: 'c5', activePiles: [[entry], []], fullRecord: nextRecord('c5', { paranoia: '', fate: '5' }) });
+  const block = h.ctx.createExplorationSettleBlock(entry);
+  assert.ok(!block.buttons.some(button => button.textContent === '自动结算'));
+  await h.ctx.settleExplorationCard(entry);
+  assert.equal(h.record.cycleStats.c5.paranoia, '', 'unknown core stats also block later bonuses');
+});
+
+test('manual placement Progress once-only gains register their limit after placement without writing the track', async () => {
+  const entry = { ...drawnEntry('13515', 'Once-only Progress'), drawnAt: 'first' };
+  const h = settleHarness({ cycle: 'c3', diplomacyBonus: 2, activePiles: [[entry], []], fullRecord: nextRecord('c3') });
+  h.ctx.state.cardTracks = { story: { progress: 2 }, doom: { doom: 3 }, inwardOdyssey: { position: 4 } };
+  await h.ctx.settleExplorationCard(entry);
+  assert.equal(h.ctx.explorationDashboardTracks(h.record).progress, 2);
+  assert.ok(h.ctx.pendingExplorationEffects().some(text => /收益.*限制/.test(text)));
+  const block = h.ctx.createExplorationSettleBlock(entry);
+  assert.match(textOf(block), /手动选择放置位置.*进展 \+1/);
+  await clickAndWait(buttonNamed(block, '已手动放置，登记次数限制'));
+  assert.deepEqual(h.alerts, []);
+  assert.equal(h.ctx.explorationDashboardTracks(h.record).progress, 2);
+  assert.equal(h.record.explorationDelays.queue.filter(item => item.onceKey && item.status === 'waiting').length, 1);
+  assert.equal(h.ctx.pendingExplorationEffects().length, 0);
+  const repeated = { ...drawnEntry('13515', 'Once-only Progress'), drawnAt: 'second', day: 13 };
+  h.drawState.activePiles = [[repeated], []];
+  assert.ok(!h.ctx.createExplorationSettleBlock(repeated).buttons.some(button => button.textContent === '已手动放置，登记次数限制'));
+  await h.ctx.settleExplorationCard(repeated);
+  assert.equal(h.ctx.explorationDashboardTracks(h.record).progress, 2);
+  assert.equal(h.ctx.pendingExplorationEffects().length, 0);
+});
+
+test('manual placement a chosen Doom branch records the decision but still waits for a placement location', async () => {
+  const entry = drawnEntry('13639', 'Moral Erosion');
+  const h = settleHarness({ cycle: 'c2', activePiles: [[entry], []], fullRecord: nextRecord('c2') });
+  h.ctx.createExplorationSettleBlock(entry);
+  await h.ctx.writeExplorationChoice(entry, 'choice:moral-erosion', 'doom');
+  assert.equal(h.ctx.explorationDashboardTracks(h.record).doom, 0);
+  assert.match(h.ctx.pendingExplorationEffects().join(' '), /手动选择放置位置.*灾祸 \+1/);
+  await h.ctx.settleExplorationCard(entry);
+  assert.equal(h.ctx.explorationDashboardTracks(h.record).doom, 0);
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '已手动放置'));
+  assert.equal(h.ctx.pendingExplorationEffects().length, 0);
+  assert.equal(h.ctx.explorationDashboardTracks(h.record).doom, 0);
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '撤销选择结算'));
+  await h.ctx.writeExplorationChoice(entry, 'choice:moral-erosion', 'humanity');
+  assert.equal(h.record.cycleStats.c2.humanity, '3');
+  assert.equal(h.ctx.pendingExplorationEffects().length, 0);
+});
+
+test('manual placement old Progress receipts remain undoable and are never granted again automatically', async () => {
+  const entry = drawnEntry('9341', 'Waster Caravan');
+  const old = effectRules.apply(nextRecord('c4'), 'c4', [{ type: 'progress', amount: 1 }], { stats: { progress: 2 } });
+  const h = settleHarness({ cycle: 'c4', diplomacyBonus: 2, activePiles: [[entry], []], fullRecord: old.record });
+  h.ctx.state.cardTracks = { story: { progress: 3 }, doom: { doom: 0 }, inwardOdyssey: { position: 0 } };
+  h.ctx.state.exploration.trackReceiptsByCycle = { c4: Object.fromEntries(old.record.explorationTrackTransactions.map(item => [item.id, true])) };
+  h.ctx.explorationEffectState(entry).applied['manual:1'] = { changes: old.changes, summary: old.summary, ruleVersion: 2 };
+  const block = h.ctx.createExplorationSettleBlock(entry);
+  assert.ok(!h.ctx.pendingExplorationEffects().some(text => /放置/.test(text)), 'old written gains must not be placed twice');
+  await clickAndWait(buttonNamed(block, '撤销记录表效果'));
+  assert.equal(h.ctx.explorationDashboardTracks(h.record).progress, 2);
+  await h.ctx.settleExplorationCard(entry);
+  assert.equal(h.ctx.explorationDashboardTracks(h.record).progress, 2);
+  assert.match(h.ctx.pendingExplorationEffects().join(' '), /手动选择放置位置.*进展 \+1/);
+});
+
+test('next exploration numeric branches write once and undo both tracks and removal', async () => {
+  for (const [cycle, id, stats, field, after, removal] of [
+    ['c2', '13630', { fate: '8', crewCounters: { refugees: 2 } }, 'hull', '3', 'remove'],
+    ['c3', '13540', { paradox: '3' }, 'loopLength', '9', 'permanent'],
+    ['c4', '9330', { babelianDebt: '3' }, 'babelianDebt', '1', 'remove'],
+  ]) {
+    const entry = drawnEntry(id, 'Numeric branch');
+    const h = settleHarness({ cycle, activePiles: [[entry], []], fullRecord: nextRecord(cycle, stats) });
+    const before = h.record.cycleStats[cycle][field];
+    assert.equal(h.written.length, 0);
+    await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '自动结算'));
+    assert.deepEqual(h.alerts, []);
+    assert.equal(h.record.cycleStats[cycle][field], after);
+    assert.equal(entry.removal, removal);
+    await h.ctx.settleExplorationCard(entry);
+    assert.equal(h.record.cycleStats[cycle][field], after, 'repeated clicks must not apply the branch twice');
+    await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '撤销记录表效果'));
+    assert.equal(h.record.cycleStats[cycle][field], before);
+    assert.equal(entry.removal, 'keep');
+  }
+  const titan = drawnEntry('13632', 'Triskelion System');
+  const record = nextRecord('c2', { fate: '6', crewCounters: { refugees: 1 } });
+  record.titans = [{ id: 'dream', name: '梦行者', count: 2 }, { id: 'other', name: 'Other', count: 1 }];
+  const h = settleHarness({ cycle: 'c2', activePiles: [[titan], []], fullRecord: record });
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(titan), '自动结算'));
+  assert.equal(h.record.titans[0].count, 1);
+  assert.equal(h.record.titans[1].count, 1);
+  assert.equal(titan.removal, 'remove');
+});
+
+test('next exploration Ambrosia uses latest stock rounded up and delta undo preserves later edits', async () => {
+  const entry = drawnEntry('13635', 'Ambrosia Spill');
+  const h = settleHarness({ cycle: 'c2', activePiles: [[entry], []], fullRecord:
+    nextRecord('c2', { fate: '8' }, { 'c2-violentAmbrosia': 33 }) });
+  const button = buttonNamed(h.ctx.createExplorationSettleBlock(entry), '自动结算');
+  h.updateServerRecord(nextRecord('c2', { fate: '8' }, { 'c2-violentAmbrosia': 35 }));
+  await clickAndWait(button);
+  assert.deepEqual(h.alerts, []);
+  assert.equal(h.record.resources['c2-violentAmbrosia'], 18);
+  assert.equal(h.record.cycleStats.c2.hull, '3');
+  assert.equal(h.ctx.explorationDashboardTracks(h.record).doom, 0);
+  assert.match(textOf(h.ctx.createExplorationSettleBlock(entry)), /手动选择放置位置.*灾祸 \+1/);
+  assert.equal(entry.removal, 'remove');
+  await h.ctx.settleExplorationCard(entry);
+  assert.equal(h.record.resources['c2-violentAmbrosia'], 18);
+  const later = structuredClone(h.record);
+  later.resources['c2-violentAmbrosia'] += 3;
+  h.updateServerRecord(later);
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '撤销记录表效果'));
+  assert.equal(h.record.resources['c2-violentAmbrosia'], 38);
+  assert.equal(h.record.cycleStats.c2.hull, '4');
+  assert.equal(h.ctx.explorationDashboardTracks(h.record).doom, 0);
+  assert.equal(entry.removal, 'keep');
+  const quiet = drawnEntry('13635', 'Ambrosia Spill');
+  const noOp = settleHarness({ cycle: 'c2', activePiles: [[quiet], []], fullRecord: nextRecord('c2', {}, { 'c2-violentAmbrosia': 15 }) });
+  await clickAndWait(buttonNamed(noOp.ctx.createExplorationSettleBlock(quiet), '自动结算'));
+  assert.equal(noOp.ctx.pendingExplorationEffects().length, 0, 'the 0–15 tier is a completed no-op');
+  assert.equal(quiet.removal, 'remove');
+});
+
+test('next exploration choices stay pending until selected and freeze a resolved branch', async () => {
+  const moral = drawnEntry('13639', 'Moral Erosion');
+  const h = settleHarness({ cycle: 'c2', activePiles: [[moral], []], fullRecord: nextRecord('c2') });
+  const block = h.ctx.createExplorationSettleBlock(moral);
+  const select = block.descendants().find(node => node.tag === 'select');
+  const button = buttonNamed(block, '选择后结算');
+  assert.equal(button.disabled, true);
+  await h.ctx.settleExplorationCard(moral);
+  assert.equal(h.record.cycleStats.c2.humanity, '4');
+  assert.equal(h.ctx.pendingExplorationEffects().length, 1);
+  select.value = 'humanity'; select.listeners.change();
+  assert.equal(button.disabled, false);
+  await clickAndWait(button);
+  assert.deepEqual(h.alerts, []);
+  assert.equal(h.record.cycleStats.c2.humanity, '3');
+  await h.ctx.writeExplorationChoice(moral, 'choice:moral-erosion', 'doom');
+  assert.equal(h.ctx.explorationDashboardTracks(h.record).doom, 0, 'a second choice cannot replace an applied choice');
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(moral), '撤销选择结算'));
+  assert.equal(h.record.cycleStats.c2.humanity, '4');
+  const chekhov = drawnEntry('13534', 'Chekhov');
+  const low = settleHarness({ cycle: 'c3', activePiles: [[chekhov], []], fullRecord: nextRecord('c3', { paradox: '2' }) });
+  await clickAndWait(buttonNamed(low.ctx.createExplorationSettleBlock(chekhov), '自动结算'));
+  assert.equal(low.record.cycleStats.c3.paradox, '3');
+  assert.equal(low.ctx.createExplorationSettleBlock(chekhov).descendants().filter(node => node.tag === 'select').length, 0);
+  await low.ctx.settleExplorationCard(chekhov);
+  assert.equal(low.record.cycleStats.c3.frozenTime, '2', 'the newly reached threshold cannot grant a second branch');
+  await clickAndWait(buttonNamed(low.ctx.createExplorationSettleBlock(chekhov), '撤销记录表效果'));
+  assert.equal(low.record.cycleStats.c3.paradox, '2');
+  const highEntry = drawnEntry('13534', 'Chekhov');
+  const high = settleHarness({ cycle: 'c3', activePiles: [[highEntry], []], fullRecord: nextRecord('c3', { paradox: '3' }) });
+  high.ctx.createExplorationSettleBlock(highEntry);
+  await high.ctx.writeExplorationChoice(highEntry, 'choice:chekhov-loss', 'hull');
+  assert.equal(high.record.cycleStats.c3.frozenTime, '1');
+  assert.equal(high.record.cycleStats.c3.hull, '3');
+});
+
+test('next exploration optional Priest offers do not accept on draw or one-click settlement', async () => {
+  const entry = drawnEntry('6426', 'Priest');
+  const h = settleHarness({ activePiles: [[entry], []], fullRecord: nextRecord('c1', {}, { priests: 1 }) });
+  h.ctx.createExplorationSettleBlock(entry);
+  await h.ctx.settleExplorationCard(entry);
+  assert.equal(h.record.resources.priests, 1);
+  assert.equal(h.record.cycleStats.c1.fate, '0');
+  await h.ctx.writeExplorationChoice(entry, 'choice:priest-offer', 'decline');
+  assert.equal(h.ctx.pendingExplorationEffects().length, 0);
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '撤销选择结算'));
+  await h.ctx.writeExplorationChoice(entry, 'choice:priest-offer', 'accept');
+  assert.equal(h.record.resources.priests, 2);
+  assert.equal(h.record.cycleStats.c1.fate, '3');
+});
+
+test('next exploration Dues shows affordable stocks and pays inventory plus tracks atomically', async () => {
+  const key = resource => dataset.cycles.c4.resources[resource].storageKey;
+  const entry = drawnEntry('9329', 'Diminishing Returns');
+  const initial = nextRecord('c4', { fate: '7' }, { [key('cursedDerelict')]: 3, [key('imperialScroll')]: 1, [key('babylonianContraption')]: 1 });
+  const h = settleHarness({ cycle: 'c4', activePiles: [[entry], []], fullRecord: initial });
+  const block = h.ctx.createExplorationSettleBlock(entry);
+  const select = block.descendants().find(node => node.tag === 'select');
+  assert.deepEqual(select.children.map(node => node.value), ['', 'cursedDerelict', 'babylonianContraption']);
+  assert.match(select.children[1].textContent, /（库存 3）/);
+  const expected = optionRules.duesPlan(h.record, 'c4', dataset);
+  const changed = structuredClone(initial); changed.resources[key('cursedDerelict')] = 4;
+  h.updateServerRecord(changed);
+  await assert.rejects(h.ctx.writeExplorationChoice(entry, 'choice:dues', 'babylonianContraption', expected), /已变化/);
+  assert.equal(h.record.cycleStats.c4.hull, '4');
+  assert.equal(h.record.resources[key('babylonianContraption')], 1);
+  await h.ctx.writeExplorationChoice(entry, 'choice:dues', 'babylonianContraption', optionRules.duesPlan(h.record, 'c4', dataset));
+  assert.equal(h.record.resources[key('babylonianContraption')], 0);
+  assert.equal(h.record.cycleStats.c4.hull, '3');
+  assert.equal(entry.removal, 'permanent');
+  const later = structuredClone(h.record); later.resources[key('babylonianContraption')] = 2;
+  h.updateServerRecord(later);
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '撤销选择结算'));
+  assert.equal(h.record.resources[key('babylonianContraption')], 3);
+  assert.equal(h.record.cycleStats.c4.hull, '4');
+  assert.equal(entry.removal, 'keep');
+  const fallback = drawnEntry('9329', 'Diminishing Returns');
+  const poor = settleHarness({ cycle: 'c4', activePiles: [[fallback], []], fullRecord: nextRecord('c4', { fate: '7', babelianDebt: '3' }) });
+  await clickAndWait(buttonNamed(poor.ctx.createExplorationSettleBlock(fallback), '自动结算'));
+  assert.deepEqual(poor.alerts, []);
+  assert.equal(poor.record.cycleStats.c4.hull, '3');
+  assert.equal(poor.ctx.explorationDashboardTracks(poor.record).doom, 0);
+  assert.match(textOf(poor.ctx.createExplorationSettleBlock(fallback)), /手动选择放置位置.*灾祸 \+1/);
+  await clickAndWait(buttonNamed(poor.ctx.createExplorationSettleBlock(fallback), '已处理其余效果'));
+  assert.equal(poor.ctx.pendingExplorationEffects().length, 0);
+});
+
+test('next exploration map event snapshots gate later rewards without inventing a new event', async () => {
+  for (const before of [0, 1]) {
+    const entry = drawnEntry('6437', 'Maze Pilgrim');
+    const h = settleHarness({ factions: ['labyrinthians'], activePiles: [[entry], []],
+      fullRecord: nextRecord('c1', { strangers: String(before), fate: '5' }) });
+    await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '自动结算'));
+    assert.deepEqual(h.alerts, []);
+    assert.equal(h.record.cycleStats.c1.strangers, '3');
+    const core = h.ctx.explorationEffectDescriptors(entry, dataset.cards['c1:6437'], h.ctx.explorationCardContext(entry, dataset.cards['c1:6437']))
+      .find(item => item.id === 'conditional:maze-pilgrim');
+    assert.equal(Boolean(core.remainder), before === 1, 'later Fate bonus must not retroactively enable the preceding event');
+    if (before === 1) {
+      assert.equal(h.ctx.pendingExplorationEffects().length, 2);
+      await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '已处理其余效果'));
+      await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry), '自动结算'));
+      assert.equal(h.record.cycleStats.c1.strangers, '4');
+    }
+    assert.equal(h.ctx.pendingExplorationEffects().length, 0);
+    const context = h.ctx.explorationCardContext(entry, dataset.cards['c1:6437']);
+    await h.ctx.writeExplorationRecordEffects(entry, [core], context, [], true);
+    assert.equal(h.record.cycleStats.c1.strangers, String(before), 'undoing the core also reverses the later dependent bonus');
+    assert.equal(h.ctx.explorationEffectState(entry).manual[core.id], undefined, 'undo clears the event completion');
+    await h.ctx.settleExplorationCard(entry);
+    const repeated = h.ctx.explorationEffectDescriptors(entry, dataset.cards['c1:6437'], h.ctx.explorationCardContext(entry, dataset.cards['c1:6437']))
+      .find(item => item.id === core.id);
+    assert.equal(Boolean(repeated.remainder), before === 1, 'undo and reapply preserve the original event order');
+  }
+  const lenders = drawnEntry('9334', 'Curselenders');
+  const h = settleHarness({ cycle: 'c4', factions: ['cloudThieves'], diplomacyBonus: -3, activePiles: [[lenders], []],
+    fullRecord: nextRecord('c4', { babelianDebt: '1' }) });
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(lenders), '自动结算'));
+  assert.equal(h.record.cycleStats.c4.babelianDebt, '3');
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(lenders), '已处理其余效果'));
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(lenders), '自动结算'));
+  assert.equal(h.record.cycleStats.c4.babelianDebt, '4');
+});
+
+test('next exploration Tomorrow waits for its event and restores the original removal through cascade undo', async () => {
+  for (const fate of ['0', '7']) {
+    const entry = drawnEntry('13541', 'Tomorrow’s Edge');
+    const h = settleHarness({ cycle: 'c3', factions: ['sunheirs'], activePiles: [[entry], []], fullRecord: nextRecord('c3', { paradox: '2', fate }) });
+    const first = h.ctx.createExplorationSettleBlock(entry);
+    assert.equal(first.descendants().filter(node => node.tag === 'select').length, 0);
+    await clickAndWait(buttonNamed(first, '自动结算'));
+    assert.equal(h.record.cycleStats.c3.paradox, '3');
+    const waiting = h.ctx.createExplorationSettleBlock(entry);
+    assert.equal(waiting.descendants().filter(node => node.tag === 'select').length, 0);
+    await assert.rejects(h.ctx.writeExplorationChoice(entry, 'choice:tomorrows-edge-fallback', 'decline'), /特殊事件/);
+    await clickAndWait(buttonNamed(waiting, '已处理其余效果'));
+    await h.ctx.writeExplorationChoice(entry, 'choice:tomorrows-edge-fallback', 'decline');
+    assert.equal(h.record.cycleStats.c3.paradox, '3');
+    assert.equal(entry.removal, fate === '7' ? 'remove' : 'permanent');
+    const card = dataset.cards['c3:13541'];
+    const context = h.ctx.explorationCardContext(entry, card);
+    const core = h.ctx.explorationEffectDescriptors(entry, card, context).find(item => item.id === 'conditional:tomorrows-edge-map');
+    await h.ctx.writeExplorationRecordEffects(entry, [core], context, [], true);
+    assert.equal(h.record.cycleStats.c3.paradox, '2');
+    assert.equal(entry.removal, 'keep');
+    assert.deepEqual(Object.keys(h.ctx.explorationEffectState(entry).applied), []);
+    assert.equal(h.ctx.explorationEffectState(entry).manual[core.id], undefined);
+  }
+});
+
+test('next exploration legacy partial receipts block a new whole-group settlement until undone', async () => {
+  const entry = drawnEntry('13630', 'Argo Engines');
+  const h = settleHarness({ cycle: 'c2', activePiles: [[entry], []], fullRecord: nextRecord('c2', { crewCounters: { refugees: 2 } }) });
+  const local = h.ctx.explorationEffectState(entry);
+  local.applied['manual:0'] = { changes: [{ type: 'hull', amount: -1, cycleId: 'c2' }], summary: '船体 -1' };
+  const block = h.ctx.createExplorationSettleBlock(entry);
+  assert.ok(!block.buttons.some(node => node.textContent === '自动结算'));
+  await h.ctx.settleExplorationCard(entry);
+  assert.equal(h.record.cycleStats.c2.hull, '4', 'new grouping cannot repeat an existing partial effect');
+  assert.match(textOf(block), /旧版分项/);
+  assert.ok(block.buttons.some(node => node.textContent === '撤销记录表效果'));
+});
+
+test('Dreamwalker gains stack on the existing row and automatic Titan losses prefer that row',async()=>{
+  const titans=[{id:'dream',name:'梦行者',count:2,limit:1,crippled:true},
+    {id:'other',name:'Other',count:2},{id:'last',name:'Last',count:1}];
+  const original={cycle:'c4',resources:{},titans};
+  const gained=effectRules.apply(original,'c4',[{type:'titan',amount:2}]);
+  assert.equal(gained.record.titans.length,3);assert.equal(gained.record.titans[0].count,4);
+  assert.equal(gained.record.titans[0].id,'dream');assert.equal(gained.record.titans[0].crippled,true);
+  assert.deepEqual(effectRules.revert(gained.record,gained.changes),original);
+  for (const amount of [1,2]) {
+    const lost=effectRules.apply(original,'c4',[{type:'titan',amount:-amount}]);
+    assert.deepEqual(lost.record.titans.filter(item=>item.id!=='dream'),titans.slice(1));
+    assert.equal(lost.record.titans.find(item=>item.id==='dream')?.count || 0,2-amount);
+    assert.deepEqual(effectRules.revert(lost.record,lost.changes),original);
+  }
+  assert.equal(effectRules.automaticTitanLosses(original,3),null,'remaining ambiguous losses need a choice');
+  const chosen=effectRules.apply(original,'c4',[{type:'titan',amount:-3}],{titanLosses:[{id:'last',count:1}]});
+  assert.deepEqual(chosen.record.titans,[titans[1]]);
+  assert.deepEqual(effectRules.revert(chosen.record,chosen.changes),original);
+  const gainEntry=drawnEntry('9313','Titan');
+  const gain=settleHarness({cycle:'c4',diplomacyBonus:0,activePiles:[[gainEntry],[]],fullRecord:{...original,fate:'0'}});
+  await clickAndWait(buttonNamed(gain.ctx.createExplorationSettleBlock(gainEntry),'自动结算'));
+  assert.equal(gain.record.titans.length,3);assert.equal(gain.record.titans[0].count,3);
+  const lossEntry=drawnEntry('13624','Cyclopean Shrine');
+  const loss=settleHarness({cycle:'c2',activePiles:[[lossEntry],[]],fullRecord:{cycle:'c2',resources:{},renegade:'0',cycleStats:{c2:{crewCounters:{crew:3,refugees:4,captives:0}}},titans}});
+  const block=loss.ctx.createExplorationSettleBlock(lossEntry);
+  assert.equal(block.descendants().filter(node=>node.tag==='select').length,0);
+  await clickAndWait(buttonNamed(block,'自动结算'));
+  assert.deepEqual(loss.alerts,[]);assert.equal(loss.record.titans[0].count,1);
+  assert.deepEqual(loss.record.titans.slice(1),titans.slice(1));
+});
+
+test('confirmed icon cards use real fields and once-only gains share the numeric settlement and undo',async()=>{
+  const fateEntry=drawnEntry('13617','Shrine of Aristaeus');
+  const fate=settleHarness({cycle:'c2',activePiles:[[fateEntry],[]],fullRecord:{cycle:'c2',resources:{},fate:'8',cycleStats:{c2:{fate:'8',crewCounters:{crew:5,refugees:0,captives:0}}}}});
+  fate.ctx.window.ATO_EXPLORATION_CARD_RESOURCES={...dataset,cards:{...dataset.cards,'c2:13617':{
+    ...dataset.cards['c2:13617'],manual:[{text:'Lose -3 Argo Fate.',badge:'Argo Fate/7+'}],
+  }}};
+  await clickAndWait(buttonNamed(fate.ctx.createExplorationSettleBlock(fateEntry),'自动结算'));
+  assert.equal(fate.record.fate,'5');
+  await clickAndWait(buttonNamed(fate.ctx.createExplorationSettleBlock(fateEntry),'撤销记录表效果'));
+  assert.equal(fate.record.fate,'8','a now-false threshold does not hide an applied effect or its undo');
+  const nymph=drawnEntry('13530','Delphian Fleet');
+  const h=settleHarness({cycle:'c3',diplomacyBonus:2,activePiles:[[nymph],[]],fullRecord:{cycle:'c3',resources:{},nymphCharges:'1',nymphLimit:'3',fate:'0'}});
+  const card=h.ctx.createExplorationSettleBlock(nymph);
+  assert.match(textOf(card),/宁芙召唤充能 \+1/);
+  await clickAndWait(buttonNamed(card,'自动结算'));
+  assert.equal(h.record.nymphCharges,'2');assert.equal(h.record.titans,undefined);
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(nymph),'撤销记录表效果'));
+  assert.equal(h.record.nymphCharges,'1');
+  for(const [cycle,id,type] of [['c4','9339','knowledge']]) {
+    const entry={...drawnEntry(id,'Once-only icon'),drawnAt:'first'};
+    const once=settleHarness({cycle,diplomacyBonus:2,activePiles:[[entry],[]],fullRecord:{cycle,resources:{},fate:'0'}});
+    once.ctx.state.cardTracks={story:{progress:2},inwardOdyssey:{position:3}};
+    const initial=type==='progress'?2:3;
+    await clickAndWait(buttonNamed(once.ctx.createExplorationSettleBlock(entry),'自动结算'));
+    assert.deepEqual(once.alerts,[]);
+    assert.equal(once.ctx.explorationDashboardTracks(once.record)[type],initial+1);
+    assert.equal(once.record.explorationDelays.queue.filter(item=>item.onceKey && item.status==='waiting').length,1);
+    const second={...drawnEntry(id,'Once-only icon'),day:13,drawnAt:'second'};
+    once.drawState.activePiles=[[second],[]];
+    const blocked=once.ctx.createExplorationSettleBlock(second);
+    assert.match(textOf(blocked),/已经触发/);
+    await once.ctx.settleExplorationCard(second);
+    assert.equal(once.ctx.explorationDashboardTracks(once.record)[type],initial+1);
+    await once.ctx.processExplorationDelays('timeline-battle-end',{timelineBattle:true,eventId:'verified-battle'});
+    const third={...drawnEntry(id,'Once-only icon'),day:14,drawnAt:'third'};
+    once.drawState.activePiles=[[third],[]];
+    await clickAndWait(buttonNamed(once.ctx.createExplorationSettleBlock(third),'自动结算'));
+    assert.equal(once.ctx.explorationDashboardTracks(once.record)[type],initial+2);
+    await clickAndWait(buttonNamed(once.ctx.createExplorationSettleBlock(third),'撤销记录表效果'));
+    assert.equal(once.ctx.explorationDashboardTracks(once.record)[type],initial+1);
+    assert.equal(once.record.explorationDelays.queue.filter(item=>item.onceKey && item.status==='waiting').length,0);
+  }
+});
+
+test('Weight of Obligations uses one green button and sequential Debt losses with the one-Crew exception',async()=>{
+  for (const [debt,crew,fate,expectedDebt,expectedCrew] of [
+    [6,5,6,3,4], [3,5,7,2,4], [3,1,7,3,1], [2,5,6,1,5], [0,1,7,3,1], [2,0,6,1,0],
+  ]) {
+    const entry=drawnEntry('9340','Weight of Obligations');
+    const initial={cycle:'c4',resources:{},cycleStats:{c4:{babelianDebt:String(debt),crew:String(crew),fate:String(fate)}}};
+    const h=settleHarness({cycle:'c4',activePiles:[[entry],[]],fullRecord:initial});
+    const block=h.ctx.createExplorationSettleBlock(entry);
+    assert.ok(!block.descendants().some(node=>node.className==='exploration-settle-manual'));
+    assert.equal(h.written.length,0);
+    await clickAndWait(buttonNamed(block,'自动结算'));
+    assert.deepEqual(h.alerts,[]);assert.equal(h.written.length,1);
+    assert.equal(h.record.cycleStats.c4.babelianDebt,String(expectedDebt));
+    assert.equal(h.record.cycleStats.c4.crew,String(expectedCrew));
+    assert.equal(h.ctx.pendingExplorationEffects().length,0);
+    await h.ctx.settleExplorationCard(entry);
+    assert.equal(h.record.cycleStats.c4.babelianDebt,String(expectedDebt));
+    await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry),'撤销记录表效果'));
+    assert.equal(h.record.cycleStats.c4.babelianDebt,String(debt));
+    assert.equal(h.record.cycleStats.c4.crew,String(crew));
+  }
+  const entry=drawnEntry('9340','Weight of Obligations');
+  const h=settleHarness({cycle:'c4',activePiles:[[entry],[]],fullRecord:{cycle:'c4',resources:{},cycleStats:{c4:{babelianDebt:'6',crew:'5',fate:'6'}}}});
+  const before=h.ctx.createExplorationSettleBlock(entry);
+  h.updateServerRecord({cycle:'c4',resources:{},cycleStats:{c4:{babelianDebt:'3',crew:'1',fate:'7'}}});
+  await clickAndWait(buttonNamed(before,'自动结算'));
+  assert.equal(h.record.cycleStats.c4.babelianDebt,'3');assert.equal(h.record.cycleStats.c4.crew,'1');
+  const missing=settleHarness({cycle:'c4',activePiles:[[entry],[]],fullRecord:{cycle:'c4',resources:{},cycleStats:{c4:{babelianDebt:'3',fate:'7'}}}});
+  const manual=missing.ctx.createExplorationSettleBlock(entry);
+  assert.ok(!manual.buttons.some(button=>button.textContent==='自动结算'));
+  assert.ok(manual.descendants().some(node=>node.className==='exploration-settle-manual'));
+});
+
+test('Fate Hull and Babelian Debt pictured cards resolve resources and their real counters together',async()=>{
+  for(const [cycle,id,bonus,type,before,after] of [['c3','13519',2,'fate','4','3'],['c4','9300',-3,'hull','4','3'],['c4','9337',-2,'babelianDebt','2','4']]){
+    const entry=drawnEntry(id,'Pictured card'),card=dataset.cards[`${cycle}:${id}`];
+    const h=settleHarness({cycle,diplomacyBonus:bonus,activePiles:[[entry],[]],fullRecord:{cycle,resources:{},[type]:before,cycleStats:{[cycle]:{[type]:before}}}});
+    await h.ctx.settleExplorationDraw();
+    assert.equal(h.alerts.length,0);assert.equal(h.record.cycleStats[cycle][type],after);
+    assert.equal(h.record[type],after);
+    const grant=card.grants[0],key=dataset.cycles[cycle].resources[grant.resource].storageKey;
+    assert.equal(h.record.resources[key],grant.amount);
+    const context=h.ctx.explorationCardContext(entry,card);
+    const item=h.ctx.explorationEffectDescriptors(entry,card,context)[0];
+    assert.equal(item.remainder,'');
+    await h.ctx.writeExplorationRecordEffects(entry,[item],context,[]);
+    assert.equal(h.record[type],after,'an existing receipt prevents a repeat');
+    await h.ctx.writeExplorationRecordEffects(entry,[item],context,[],true);
+    assert.equal(h.record[type],before);assert.equal(h.record.resources[key],grant.amount);
+  }
+  const locked=effectRules.apply({cycle:'c2',hull:'4'},'c2',[{type:'hull',amount:3}]);
+  assert.equal(locked.record.hull,'5');assert.equal(locked.changes[0].amount,1);
+  assert.equal(effectRules.revert(locked.record,locked.changes).hull,'4');
+  assert.deepEqual(effectRules.parse('Gain +1 ICON(black emblem glyph).','c3','13517','Denounced-').effects,[{type:'doom',amount:1}]);
+  assert.deepEqual(effectRules.parse('Lose -1 ICON(dark round glyph with a pale inner emblem).','c5','10323','Aligned with Nemesis').effects,[{type:'hull',amount:-1}]);
+});
+
+test('all cycles retain card selection and temporary pile entrances even when both piles are empty',()=>{
+  for(const cycle of ['c1','c2','c3','c4','c5']){
+    const h=settleHarness({cycle});
+    h.ctx.createExplorationDestructionTools=()=>null;
+    const ui=h.ctx.createExplorationTools();
+    const panes=ui.children.find(node=>node.className==='exploration-removed-piles');
+    assert.ok(panes,cycle+' has attached card library and removed-pile controls');
+    const builder=panes.children.find(node=>node.className==='exploration-builder');
+    const removed=panes.children.find(node=>node.className==='exploration-removed-pile');
+    assert.ok(builder,cycle+' has its card library');
+    assert.ok(removed && !removed.hidden,cycle+' has its empty temporary pile entrance');
+    assert.match(textOf(removed),/暂无暂时移出的卡牌/);
+    h.drawState.temporaryRemoved.push(drawnEntry(cycle==='c2'?'13601':cycle==='c3'?'13501':cycle==='c4'?'9301':cycle==='c5'?'10301':'6401','Removed'));
+    const withCard=h.ctx.createExplorationTools();
+    const grid=withCard.descendants().find(node=>node.className==='exploration-drawn-grid');
+    assert.ok(grid?.children.length,cycle+' shows its temporary card');
+  }
+});
+
+test('drawing Titans and Debt waits for green settlement buttons and retains an undoable result',async()=>{
+  const h=settleHarness({cycle:'c4',diplomacyBonus:-1,fullRecord:{cycle:'c4',fate:'0',babelianDebt:'2',cycleStats:{c4:{fate:'0',babelianDebt:'2'}},resources:{},titans:[{id:'existing',name:'Existing',count:1}]}});
+  h.drawState.drawPile=['9313','9341'];
+  h.ctx.drawExplorationCard();await flushAsync();
+  assert.equal(h.alerts.length,0);
+  assert.equal(h.record.titans.length,1);
+  assert.equal(h.record.cycleStats.c4.babelianDebt,'2');
+  assert.equal(h.written.length,0,'drawing does not write effects');
+  const entries=[...h.drawState.activePiles.flat()];
+  assert.equal(entries.length,2,'the results remain visible for review and undo');
+  for (const entry of entries) {
+    const block=h.ctx.createExplorationSettleBlock(entry);
+    assert.ok(!block.descendants().some(node=>node.className==='exploration-settle-manual'));
+    assert.equal(buttonNamed(block,'自动结算').parentNode.className,'exploration-settle-actions');
+    await clickAndWait(buttonNamed(block,'自动结算'));
+  }
+  assert.equal(h.written.length,2);assert.equal(h.record.titans.length,2);
+  assert.equal(h.record.titans[1].name,'梦行者');
+  assert.equal(h.record.cycleStats.c4.babelianDebt,'3');
+  assert.match(textOf(h.ctx.createExplorationTools()),/已结算：泰坦 \+1/);
+  await h.ctx.settleExplorationCard(entries[0]);
+  assert.equal(h.record.titans.length,2,'a repeated click does not duplicate the Titan');
+  const picturedResources=Object.values(dataset.cards).filter(card=>card.cycleId==='c4' && card.kind===rules.KIND_RESOURCE_ONLY && /^(BABYLONIAN COMPLEX|CHARRED STEPS)$/i.test(card.titleEn));
+  assert.equal(picturedResources.length,2);
+  for (const id of ['9345', ...picturedResources.map(card=>card.cardId)]) {
+    const block=h.ctx.createExplorationSettleBlock(drawnEntry(id,'Pictured card'));
+    assert.equal(buttonNamed(block,'自动结算').parentNode.className,'exploration-settle-actions');
+    assert.ok(!block.descendants().some(node=>node.className==='exploration-settle-manual'));
+  }
+  h.setDiplomacy(1);
+  const mixed=h.ctx.createExplorationSettleBlock(drawnEntry('9345','Untamed Titan'));
+  assert.ok(buttonNamed(mixed,'自动结算'));
+  const manual=mixed.descendants().find(node=>node.className==='exploration-settle-manual');
+  assert.ok(manual);assert.doesNotMatch(textOf(manual),/Gain \+1 Titan/);
+  const titanEntry=entries.find(entry=>entry.id==='9313'),card=dataset.cards['c4:9313'];
+  const context=h.ctx.explorationCardContext(titanEntry,card);
+  const item=h.ctx.explorationEffectDescriptors(titanEntry,card,context)[0];
+  await h.ctx.writeExplorationRecordEffects(titanEntry,[item],context,[],true);
+  assert.deepEqual(h.record.titans,[{id:'existing',name:'Existing',count:1}]);
+  assert.equal(h.record.cycleStats.c4.babelianDebt,'3');
+});
+
+test('single-effect auto resolution leaves choices, unknown conditions and cards with another effect pending',async()=>{
+  for(const [id,bonus,fate] of [['9341',1,0],['9341',null,0],['9341',-1,8],['9313',1,0]]){
+    const entry=drawnEntry(id,'Pending');
+    const h=settleHarness({cycle:'c4',diplomacyBonus:bonus,activePiles:[[entry],[]],fullRecord:{cycle:'c4',fate:String(fate),babelianDebt:'2',cycleStats:{c4:{fate:String(fate),babelianDebt:'2'}},resources:{},titans:[]}});
+    await h.ctx.settleSingleExplorationEffects([entry]);
+    assert.equal(h.written.length,0,`${id} relation ${bonus} Fate ${fate}`);
+    assert.equal(h.record.titans.length,0);assert.equal(h.record.cycleStats.c4.babelianDebt,'2');
+  }
+});
+
+test('single-effect auto resolution respects the pile prohibition without blocking Debt',async()=>{
+  const titan=drawnEntry('9313','Titan',0),ban=drawnEntry('9326','Ban',0),debt=drawnEntry('9341','Debt',1);
+  const h=settleHarness({cycle:'c4',diplomacyBonus:-1,activePiles:[[ban,titan],[debt]],fullRecord:{cycle:'c4',fate:'0',babelianDebt:'0',cycleStats:{c4:{fate:'0',babelianDebt:'0'}},resources:{},titans:[]}});
+  await h.ctx.settleSingleExplorationEffects([ban,titan,debt]);
+  assert.equal(h.record.titans.length,0);assert.equal(h.record.cycleStats.c4.babelianDebt,'1');
+});
+
+test('single-effect auto resolution rechecks the latest record and preserves newly enabled independent effects',async()=>{
+  const entry=drawnEntry('9341','Waster Caravan');
+  const h=settleHarness({cycle:'c4',diplomacyBonus:-1,activePiles:[[entry],[]],fullRecord:{cycle:'c4',fate:'0',babelianDebt:'2',cycleStats:{c4:{fate:'0',babelianDebt:'2'}},resources:{}}});
+  h.updateServerRecord({cycle:'c4',fate:'8',babelianDebt:'2',cycleStats:{c4:{fate:'8',babelianDebt:'2'}},resources:{}});
+  await h.ctx.settleSingleExplorationEffects([entry]);
+  assert.equal(h.record.cycleStats.c4.babelianDebt,'2','a now multi-effect card is not resolved in single-effect mode');
+  const neutral=settleHarness({cycle:'c4',diplomacyBonus:0,activePiles:[[entry],[]],fullRecord:{cycle:'c4',fate:'7',cycleStats:{c4:{fate:'7'}},resources:{}}});
+  await neutral.ctx.settleSingleExplorationEffects([entry]);
+  assert.equal(neutral.record.cycleStats.c4.fate,'8');
+  assert.equal(neutral.ctx.pendingExplorationEffects().length,1);
+  assert.match(neutral.ctx.pendingExplorationEffects()[0],/Curse/);
+});
+
+test('a lost single-effect save response retries through the shared receipt without a second Titan',async()=>{
+  const entry=drawnEntry('9313','Titan');
+  const h=settleHarness({cycle:'c4',diplomacyBonus:0,activePiles:[[entry],[]],fullRecord:{cycle:'c4',fate:'0',cycleStats:{c4:{fate:'0'}},resources:{},titans:[]}});
+  const write=h.ctx.writeServerArgoRecord;let lost=true;
+  h.ctx.writeServerArgoRecord=async(...args)=>{const result=await write(...args);if(lost){lost=false;throw new Error('response lost');}return result;};
+  await h.ctx.settleSingleExplorationEffects([entry]);
+  assert.equal(h.alerts.length,1);assert.equal(h.record.titans.length,1);
+  h.ctx.cachedArgoRecord=JSON.parse(JSON.stringify(h.record));
+  await h.ctx.settleSingleExplorationEffects([entry]);
+  assert.equal(h.record.titans.length,1);
+  assert.match(textOf(h.ctx.createExplorationTools()),/已结算：泰坦 \+1/);
+  assert.equal(h.ctx.state.exploration.lastSettlementByCycle.c4.completed.length,1);
+  await h.ctx.settleExplorationDraw();
+  assert.equal(h.record.titans.length,1);
+  assert.equal(h.ctx.state.exploration.lastSettlementByCycle.c4.completed.length,1);
+});
+
+test('refresh only reads existing cards and waits for an explicit green button after undo',async()=>{
+  const entry=drawnEntry('9341','Waster Caravan');
+  const h=settleHarness({cycle:'c4',diplomacyBonus:-1,activePiles:[[entry],[]],fullRecord:{cycle:'c4',fate:'0',babelianDebt:'2',cycleStats:{c4:{fate:'0',babelianDebt:'2'}},resources:{}}});
+  h.ctx.jsonEqual=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+  vm.runInContext('let argoRecordRefreshInFlight = false;\n'+fn('refreshCachedArgoRecord'),h.ctx);
+  await h.ctx.refreshCachedArgoRecord();
+  assert.equal(h.record.cycleStats.c4.babelianDebt,'2');
+  assert.equal(h.written.length,0);
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry),'自动结算'));
+  assert.equal(h.record.cycleStats.c4.babelianDebt,'3');
+  const card=dataset.cards['c4:9341'],context=h.ctx.explorationCardContext(entry,card);
+  const item=h.ctx.explorationEffectDescriptors(entry,card,context)[0];
+  await h.ctx.writeExplorationRecordEffects(entry,[item],context,[],true);
+  assert.equal(h.record.cycleStats.c4.babelianDebt,'2');
+  const writes=h.written.length;
+  await h.ctx.refreshCachedArgoRecord();
+  assert.equal(h.record.cycleStats.c4.babelianDebt,'2');assert.equal(h.written.length,writes);
+  await h.ctx.settleExplorationDraw();
+  assert.equal(h.record.cycleStats.c4.babelianDebt,'3','an explicit one-click settlement can apply the undone effect again');
+});
+
+test('single-effect auto resolution does not write from a read-only window',async()=>{
+  const entry=drawnEntry('9313','Titan');
+  const h=settleHarness({cycle:'c4',diplomacyBonus:0,activePiles:[[entry],[]],fullRecord:{cycle:'c4',fate:'0',cycleStats:{c4:{fate:'0'}},resources:{},titans:[]}});
+  h.ctx.ownsDashboardWriteLease=()=>false;
+  await h.ctx.settleSingleExplorationEffects([entry]);
+  assert.equal(h.written.length,0);assert.equal(h.record.titans.length,0);
+});
+
+test('all named diplomacy tables show only the current relation and exclude their preamble', () => {
+  const cards=Object.values(dataset.cards).filter(card=>card.diplomacyFaction);
+  assert.equal(cards.length,12);
+  const badges={2:'Allied',1:'Friendly',0:'Neutral','-1':'Unfriendly','-2':'Denounced','-3':'At War'};
+  for(const card of cards) for(const bonus of [2,1,0,-1,-2,-3]) {
+    const entry=drawnEntry(card.cardId,card.titleEn);
+    const h=settleHarness({cycle:card.cycleId,diplomacyBonus:bonus,fullRecord:{cycle:card.cycleId,fate:'0',cycleStats:{[card.cycleId]:{fate:'0'}},resources:{}},activePiles:[[entry],[]]});
+    assert.equal(card.diplomacyMenu,true,card.key);
+    const context=h.ctx.explorationCardContext(entry,card);
+    const desc=h.ctx.explorationEffectDescriptors(entry,card,context);
+    const active=desc.filter(row=>row.badge && /Allied|Friendly|Neutral|Unfriendly|Denounced|War|Nemesis/.test(row.badge));
+    const expected=bonus===-3 && card.cycleId==='c5' ? 'Aligned with Nemesis' : badges[bonus];
+    assert.ok(active.every(row=>row.badge===expected),`${card.key} ${bonus}: ${active.map(row=>row.badge)}`);
+    assert.ok(active.length<=1,`${card.key} ${bonus}: multiple diplomacy instructions`);
+    assert.ok(desc.every(row=>!/Resolve an effect based|外交关系结算一项效果/.test(row.text)),card.key);
+    assert.ok(desc.every(row=>!row.id.startsWith('unresolved:')),card.key);
+  }
+});
+
+test('Waster Caravan applies its active relation but keeps Progress and Doom for manual placement', async()=>{
+  const expected={2:['progress',1],0:['fate',1],'-1':['babelianDebt',1],'-2':['babelianDebt',2],'-3':['doom',1]};
+  for(const [bonus,[type,amount]] of Object.entries(expected)) {
+    const entry=drawnEntry('9341','Waster Caravan');
+    const h=settleHarness({cycle:'c4',diplomacyBonus:Number(bonus),activePiles:[[entry],[]],fullRecord:{cycle:'c4',resources:{},fate:'0',babelianDebt:'0',crew:5,cycleStats:{c4:{fate:'0',babelianDebt:'0',crew:5}}}});
+    h.ctx.state.cardTracks={story:{progress:3},doom:{doom:4},inwardOdyssey:{position:2}};
+    await h.ctx.settleExplorationDraw();
+    assert.equal(h.alerts.length,0,bonus);
+    const applied=Object.values(h.record.explorationBatchReceipts[h.ctx.explorationRoundId(entry)].applied);
+    const placement=['progress','doom'].includes(type);
+    assert.equal(applied.length,placement?0:1,bonus);
+    if(!placement)assert.deepEqual(applied[0].changes.map(x=>[x.type,x.amount]),[[type,amount]],bonus);
+    else assert.match(textOf(h.ctx.createExplorationSettleBlock(entry)),/手动选择放置位置/);
+    assert.equal(h.ctx.state.cardTracks.story.progress,3);
+    assert.equal(h.ctx.state.cardTracks.doom.doom,4);
+    const changed=type==='progress'||type==='doom'?h.ctx.state.cardTracks: h.record.cycleStats.c4;
+    assert.ok(changed);
+  }
+});
+
+test('Knowledge receipts recover lost responses, undo and repeat without replacing manual edits',async()=>{
+  const entry=drawnEntry('9339','True Light');
+  const h=settleHarness({cycle:'c4',diplomacyBonus:2,activePiles:[[entry],[]],fullRecord:{cycle:'c4',fate:'8',cycleStats:{c4:{fate:'8'}},resources:{}}});
+  h.ctx.state.cardTracks={story:{progress:3},doom:{doom:2},inwardOdyssey:{position:4}};
+  const write=h.ctx.writeServerArgoRecord;
+  let lost=true;
+  h.ctx.writeServerArgoRecord=async(...args)=>{const result=await write(...args);if(lost){lost=false;throw new Error('response lost');}return result;};
+  await assert.rejects(()=>h.ctx.settleExplorationCard(entry),/response lost/);
+  assert.equal(h.ctx.state.cardTracks.inwardOdyssey.position,4);
+  assert.equal(h.record.explorationTrackTransactions.length,1);
+  await h.ctx.settleExplorationCard(entry);
+  assert.equal(h.ctx.state.cardTracks.inwardOdyssey.position,5);
+  assert.equal(h.record.explorationTrackTransactions.length,1);
+  h.ctx.state.cardTracks.inwardOdyssey.position+=2;
+  const card=dataset.cards['c4:9339'];
+  const context=h.ctx.explorationCardContext(entry,card);
+  const item=h.ctx.explorationEffectDescriptors(entry,card,context).find(row=>row.effects.some(effect=>effect.type==='knowledge'));
+  lost=true;
+  await assert.rejects(()=>h.ctx.writeExplorationRecordEffects(entry,[item],context,[],true),/response lost/);
+  assert.equal(h.ctx.state.cardTracks.inwardOdyssey.position,7);
+  await h.ctx.settleExplorationCard(entry);
+  assert.equal(h.ctx.state.cardTracks.inwardOdyssey.position,7,'undo and reapply should cancel, preserving the independent +2');
+  assert.deepEqual(h.record.explorationTrackTransactions.map(tx=>tx.amount),[1,-1,1]);
+  await h.ctx.settleExplorationCard(entry);
+  assert.equal(h.ctx.state.cardTracks.inwardOdyssey.position,7);
+});
+
+test('conditional Doom replacements show only the applicable manual placement quantity',async()=>{
+  for(const fate of [6,7]){
+    const entry=drawnEntry('6438','Maze Storm');
+    const h=settleHarness({cycle:'c1',activePiles:[[entry],[]],fullRecord:{cycle:'c1',resources:{},fate:String(fate),cycleStats:{c1:{fate:String(fate)}}}});
+    h.ctx.state.cardTracks={story:{progress:0},doom:{doom:2},inwardOdyssey:{position:0}};
+    await h.ctx.settleExplorationDraw();
+    assert.equal(h.alerts.length,0);
+    assert.equal(h.ctx.state.cardTracks.doom.doom,2);
+    assert.equal((h.record.explorationTrackTransactions||[]).length,0);
+    const pending=h.ctx.pendingExplorationEffects().join(' ');
+    assert.match(pending,new RegExp(`灾祸 \\+${fate>=7?2:1}`));
+  }
+});
+
+test('unresolved resource notices retain their diplomacy condition instead of leaking every branch',()=>{
+  const key='c4:99998';
+  dataset.cards[key]={key,cycleId:'c4',cardId:'99998',titleEn:'Fixture',diplomacyMenu:true,diplomacyFaction:'wasters',kind:'none',grants:[],manual:[],unresolved:['old unscoped notice'],unresolvedEffects:[
+    {text:'allied unknown',badge:'Allied',condition:{type:'diplomacy',mode:'only',bonus:2}},
+    {text:'neutral unknown',badge:'Neutral',condition:{type:'diplomacy',mode:'only',bonus:0}},
+  ]};
+  try{
+    const h=settleHarness({cycle:'c4',diplomacyBonus:0});const entry=drawnEntry('99998','Fixture');const card=dataset.cards[key];
+    const desc=h.ctx.explorationEffectDescriptors(entry,card,h.ctx.explorationCardContext(entry,card));
+    assert.equal(desc.length,1);assert.match(desc[0].text,/neutral unknown/);
+  }finally{delete dataset.cards[key];}
+});
+
+test('a current draw with a corrected legacy Titan receipt requires undo and then applies Fate only',async()=>{
+  const entry=drawnEntry('6427','Egyptian War Fleet');
+  const original={cycle:'c1',fate:'4',cycleStats:{c1:{fate:'4'}},resources:{},titans:[{id:'t',name:'Existing Titan',count:1}]};
+  const old=effectRules.apply(original,'c1',[{type:'titan',amount:-1}],{titanLosses:[{id:'t',count:1}]});
+  const h=settleHarness({cycle:'c1',diplomacyBonus:2,fullRecord:old.record,activePiles:[[entry],[]]});
+  h.ctx.explorationEffectState(entry).applied['manual:0']={changes:old.changes,summary:old.summary};
+  await h.ctx.settleExplorationDraw();
+  assert.match(h.ctx.pendingExplorationEffects().join(' '),/旧版图标转录已更正/);
+  assert.equal(h.record.fate,'4');assert.equal(h.record.titans.length,0);
+  const card=dataset.cards['c1:6427'],context=h.ctx.explorationCardContext(entry,card);
+  const item=h.ctx.explorationEffectDescriptors(entry,card,context).find(row=>row.receiptMismatch);
+  assert.ok(item);
+  await h.ctx.writeExplorationRecordEffects(entry,[item],context,[],true);
+  assert.equal(h.record.titans[0].count,1);
+  await h.ctx.settleExplorationDraw();
+  assert.equal(h.record.fate,'3');assert.equal(h.record.titans[0].count,1);
+  assert.equal(h.record.resources['c1-trireme'],5,'the already settled resource gain must not repeat');
+});
+
+test('a newly recognized glyph respects a whole-line manual completion until restored',async()=>{
+  const entry=drawnEntry('9341','Waster Caravan');
+  const h=settleHarness({cycle:'c4',diplomacyBonus:-1,activePiles:[[entry],[]],fullRecord:{cycle:'c4',resources:{},fate:'8',babelianDebt:'2',cycleStats:{c4:{fate:'8',babelianDebt:'2'}}}});
+  h.ctx.explorationEffectState(entry).manual['manual:4']=true;
+  await h.ctx.settleExplorationDraw();
+  assert.equal(h.record.cycleStats.c4.babelianDebt,'2');
+  const block=h.ctx.createExplorationSettleBlock(entry);
+  await clickAndWait(buttonNamed(block,'恢复待办'));
+  await h.ctx.settleExplorationDraw();
+  assert.equal(h.record.cycleStats.c4.babelianDebt,'3');
+});
 
 test('every exploration card in the app decks has a scanned resource entry', () => {
   const ctx = vm.createContext({});
@@ -149,91 +1157,91 @@ test('a pure resource card settles its resources into the record sheet in one cl
   const harness = settleHarness({ diplomacyBonus: 1 });
   const block = harness.ctx.createExplorationSettleBlock({ id: '6404', name: 'Trade Post', day: 12 });
   assert.ok(block, '贸易站要显示结算区块');
-  assert.match(block.children[0].textContent, /纯资源卡/);
-  const buttons = block.buttons;
-  assert.equal(buttons.length, 1);
-  assert.equal(buttons[0].textContent, '自动结算');
+  assert.match(textOf(block), /纯资源卡/);
+  const button = buttonNamed(block, '自动结算');
 
-  await clickAndWait(buttons[0]);
+  await clickAndWait(button);
 
   assert.equal(harness.written.length, 1, '结算要写一次记录表');
   assert.equal(harness.written[0].resources['c1-trireme'], 2, 'Friendly+ 分支要写 ×2');
-  assert.ok(harness.ctx.state.exploration.settledByCycle.c1['c1:6404:12'], '结算后要记住这张卡已结算');
+  const receipt = harness.record.explorationBatchReceipts[harness.ctx.explorationRoundId({ id: '6404', day: 12 })];
+  assert.ok(receipt?.resource, '结算后要记住这张卡已结算');
 });
 
 test('an unsettled card offers both branches when no faction status is known', () => {
   const harness = settleHarness({ factions: [] });
   const block = harness.ctx.createExplorationSettleBlock({ id: '6404', name: 'Trade Post', day: 12 });
-  assert.equal(block.buttons.length, 2, '没有外交记录时要给出基础值与 instead 两个选项');
-  assert.equal(block.buttons[0].textContent, '基础值结算');
-  assert.match(block.buttons[1].textContent, /Friendly\+/);
+  const labels = block.buttons.map((button) => button.textContent);
+  assert.ok(labels.some((label) => label === '基础值结算'), `要给出基础值选项：${labels.join(' | ')}`);
+  assert.ok(labels.some((label) => /Friendly\+/.test(label)), `要给出 Friendly+ 选项：${labels.join(' | ')}`);
 });
 
 test('a card with extra effects settles only the resources and lists the rest', async () => {
   const harness = settleHarness({ diplomacyBonus: -2 });
   const block = harness.ctx.createExplorationSettleBlock({ id: '6406', name: 'Fishing Pier', day: 12 });
-  assert.match(block.children[0].textContent, /含其它效果/);
-  assert.equal(block.buttons[0].textContent, '结算资源部分');
+  assert.match(textOf(block), /含其它效果/);
+  await clickAndWait(buttonNamed(block, '自动结算'));
+  assert.equal(harness.written[0].resources['c1-trireme'], 2);
   const manual = block.descendants().find((node) => node.className === 'exploration-settle-manual');
   assert.ok(manual, 'Denounced 时要把额外效果列出来');
-  assert.match(manual.children[0].textContent, /Chosen Argonaut/);
-
-  await clickAndWait(block.buttons[0]);
-  assert.equal(harness.written[0].resources['c1-trireme'], 2);
+  assert.match(textOf(manual), /Chosen Argonaut/);
 });
 
-test('a card without resource effects gets no settlement block', () => {
+test('a card without resource effects still lists its manual effects', () => {
   const harness = settleHarness();
-  assert.equal(harness.ctx.createExplorationSettleBlock({ id: '6436', name: 'Cackle', day: 12 }), null);
-  assert.equal(harness.ctx.createExplorationSettleBlock({ id: '9999', name: 'Unknown', day: 12 }), null);
+  // "Cackle" 没有可写资源，但有待手动处理的效果，所以区块仍在、只是没有资源按钮。
+  const block = harness.ctx.createExplorationSettleBlock({ id: '6436', name: 'Cackle', day: 12 });
+  assert.ok(block, '有待办的卡仍要给出结算区块');
+  assert.equal(resourceButtons(block).length, 0, '没有资源收益就不给资源按钮');
+  assert.ok(block.descendants().some((node) => node.textContent?.includes('已手动处理')));
+  // 完全不在数据集里的卡：给出兜底提示，不抛错。
+  const unknown = harness.ctx.createExplorationSettleBlock({ id: '9999', name: 'Unknown', day: 12 });
+  assert.ok(unknown);
+  assert.match(textOf(unknown), /暂无效果数据/);
 });
 
 test('a settled card can be undone and the record goes back to its old value', async () => {
   const harness = settleHarness({ diplomacyBonus: 1, record: { 'c1-trireme': 3 } });
   const entry = { id: '6404', name: 'Trade Post', day: 12 };
   const block = harness.ctx.createExplorationSettleBlock(entry);
-  await clickAndWait(block.buttons[0]);
+  await clickAndWait(buttonNamed(block, '自动结算'));
   assert.equal(harness.written[0].resources['c1-trireme'], 5);
 
   const settledBlock = harness.ctx.createExplorationSettleBlock(entry);
-  assert.match(settledBlock.children[0].innerHTML, /已结算/);
-  assert.equal(settledBlock.buttons[0].textContent, '撤销结算');
-  await clickAndWait(settledBlock.buttons[0]);
+  assert.match(textOf(settledBlock), /已结算|记录表已结算/);
+  await clickAndWait(buttonNamed(settledBlock, /撤销/));
 
   assert.equal(harness.written[1].resources['c1-trireme'], 3, '撤销要把资源减回去');
-  assert.equal(harness.ctx.state.exploration.settledByCycle.c1['c1:6404:12'], undefined);
 });
 
 test('a new draw clears last round settlement marks', () => {
   const harness = settleHarness();
-  harness.ctx.state.exploration.settledByCycle = { c1: { 'c1:6404:12': { summary: '船材 +2' } } };
+  const entry = { id: '6404', name: 'Trade Post', day: 12 };
+  harness.ctx.explorationBatchReceipt(harness.record, entry).resource = { summary: '船材 +2' };
   harness.ctx.clearExplorationSettlements('c1');
-  assert.equal(Object.keys(harness.ctx.state.exploration.settledByCycle.c1).length, 0);
+  assert.equal(harness.ctx.getExplorationSettlement(entry), null);
 });
 
 test('a diplomacy menu card settles its named faction branch', async () => {
   const harness = settleHarness({ diplomacyBonus: 1 });
   const entry = { id: '6401', name: 'Minoan Fleet', day: 12 };
   const block = harness.ctx.createExplorationSettleBlock(entry);
-  assert.equal(block.buttons.length, 1);
-  assert.equal(block.buttons[0].textContent, '结算资源部分');
-  assert.match(block.children[0].textContent, /船材|Trireme/, '状态行要写明命中的分支收益');
+  assert.match(textOf(block), /船材|Trireme/, '状态行要写明命中的分支收益');
   const manual = block.descendants().find((node) => node.className === 'exploration-settle-manual');
-  const texts = manual.children.map((item) => item.textContent).join(' | ');
+  const texts = manual ? textOf(manual) : '';
   assert.ok(!texts.includes('[Denounced]') && !texts.includes('[Allied]'), '未命中的分支不该出现在待办里');
 
-  await clickAndWait(block.buttons[0]);
+  await clickAndWait(buttonNamed(block, '自动结算'));
   assert.equal(harness.written[0].resources['c1-trireme'], 4, 'Friendly 分支给 4 船材');
 });
 
 test('a diplomacy branch that only loses something lists it and never writes', () => {
   const harness = settleHarness({ diplomacyBonus: -2 });
   const block = harness.ctx.createExplorationSettleBlock({ id: '6401', name: 'Minoan Fleet', day: 12 });
-  assert.equal(block.buttons.length, 0, '该分支没有资源收益，不该给出按钮');
-  const texts = block.descendants()
-    .find((node) => node.className === 'exploration-settle-manual')
-    .children.map((item) => item.textContent).join(' | ');
-  assert.match(texts, /Denounced/, '命中的分支效果要留在待办里');
+  assert.equal(resourceButtons(block).length, 0, '该分支没有资源收益，不该给出资源按钮');
+  const texts = textOf(block.descendants()
+    .find((node) => node.className === 'exploration-settle-manual'));
+  assert.match(textOf(block), /泰坦 -1/, '命中的分支效果在绿色结算区显示');
   assert.ok(!texts.includes('[Friendly]'));
 });
 
@@ -242,8 +1250,7 @@ test('a diplomacy branch with no scannable resource shows no dead button', () =>
   // nothing to write: the card must still list what the player has to handle.
   const harness = settleHarness({ diplomacyBonus: 2 });
   const block = harness.ctx.createExplorationSettleBlock({ id: '6401', name: 'Minoan Fleet', day: 12 });
-  assert.equal(block.buttons.length, 0, '没有可写资源时不要给出无效按钮');
-  assert.match(block.children[0].textContent, /没有资源收益/);
+  assert.equal(resourceButtons(block).length, 0, '没有可写资源时不要给出无效资源按钮');
   const manual = block.descendants().find((node) => node.className === 'exploration-settle-manual');
   assert.ok(manual && manual.children.length > 0, '仍要列出待办效果');
 });
@@ -253,7 +1260,7 @@ test('a rare resource is appended to the record sheet text field', async () => {
   const entry = { id: '13511', name: 'Siren Temple of Hyperion', day: 30 };
   const block = harness.ctx.createExplorationSettleBlock(entry);
   assert.ok(block);
-  await clickAndWait(block.buttons[0]);
+  await clickAndWait(buttonNamed(block, '自动结算'));
   assert.equal(harness.written[0].resources['c3-sirenshell'], 3);
   assert.equal(harness.written[0].resources.rare, 'Antedeluvian Sirenshell');
 });
@@ -261,25 +1268,26 @@ test('a rare resource is appended to the record sheet text field', async () => {
 test('Minoan Fleet reads Minoan diplomacy even on another faction tile', () => {
   const harness = settleHarness({ factions: ['hornsworn'], diplomacyByFaction: { minoians: -2, hornsworn: 1 } });
   const block = harness.ctx.createExplorationSettleBlock({ id: '6401', name: 'Minoan Fleet', day: 12 });
-  assert.equal(block.buttons.length, 0, '友善的本地角誓者不能触发米诺斯人舰队的资源奖励');
+  assert.equal(resourceButtons(block).length, 0, '友善的本地角誓者不能触发米诺斯人舰队的资源奖励');
   const manual = block.descendants().find((node) => node.className === 'exploration-settle-manual');
-  assert.match(manual.children.map((item) => item.textContent).join(' | '), /Denounced.*Lose -1 Titan/);
+  assert.match(textOf(block), /泰坦 -1/);
 });
 
 test('named faction resources are granted even when that faction is not local', async () => {
   const harness = settleHarness({ factions: ['hornsworn'], diplomacyByFaction: { minoians: 1, hornsworn: -2 } });
   const block = harness.ctx.createExplorationSettleBlock({ id: '6401', name: 'Minoan Fleet', day: 12 });
-  await clickAndWait(block.buttons[0]);
+  await clickAndWait(buttonNamed(block, '自动结算'));
   assert.equal(harness.written[0].resources['c1-trireme'], 4);
-  const texts = block.descendants().find((node) => node.className === 'exploration-settle-manual')
-    .children.map((item) => item.textContent).join(' | ');
+  const texts = textOf(block.descendants().find((node) => node.className === 'exploration-settle-manual'));
   assert.ok(!texts.includes('[Denounced]'), '不能同时应用本地角誓者的惩罚分支');
 });
 
 test('unknown named diplomacy is not replaced by a known local faction', () => {
   const harness = settleHarness({ factions: ['hornsworn'], diplomacyByFaction: { minoians: null, hornsworn: 1 } });
   const block = harness.ctx.createExplorationSettleBlock({ id: '6401', name: 'Minoan Fleet', day: 12 });
-  assert.match(block.buttons[0].textContent, /若 Friendly/);
+  // 米诺斯人外交没记录时：不拿本地角誓者顶上，只提供读取记录的入口，不给结算按钮。
+  assert.match(textOf(block), /未记录外交关系|请先选择/);
+  assert.deepEqual(block.buttons.map(button => button.textContent), ['重新读取记录表']);
   assert.equal(harness.written.length, 0);
 });
 
@@ -287,14 +1295,15 @@ test('multiple local factions require a player choice before resource settlement
   const harness = settleHarness({ factions: ['minoians', 'hornsworn'], diplomacyByFaction: { minoians: 1, hornsworn: -2 } });
   const entry = { id: '6404', name: 'Trade Post', day: 12 };
   const block = harness.ctx.createExplorationSettleBlock(entry);
-  assert.equal(block.buttons.length, 0);
-  assert.match(block.children[0].textContent, /选择.*本地阵营/);
+  assert.equal(resourceButtons(block).length, 0);
+  assert.match(textOf(block), /本地阵营|适用阵营/);
   const select = block.descendants().find((node) => node.tag === 'select');
+  assert.ok(select, '要给出阵营选择');
   select.value = 'hornsworn';
   select.listeners.change();
   const selected = block.replacement.descendants().find((node) => node.tag === 'select');
   assert.equal(selected.value, 'hornsworn', '选择后仍应保留阵营控件，允许结算前更改');
-  await clickAndWait(block.replacement.buttons[0]);
+  await clickAndWait(buttonNamed(block.replacement, /基础值结算|自动结算|结算资源部分/));
   assert.equal(harness.written[0].resources['c1-trireme'], 1, '选择敌对角誓者应按基础收益结算');
 });
 
@@ -329,4 +1338,441 @@ test('every card that names a faction carries that faction in settlement data', 
   for (const [key, faction] of Object.entries(expected)) {
     assert.equal(dataset.cards[key].diplomacyFaction, faction, key);
   }
+});
+
+// ---- 坏日子（c1:6400）：陌生人 +1 属于自动结算的一部分 --------------------------
+test('Dog Days settles its stranger gain automatically once the numbers are recorded', async () => {
+  const entry = drawnEntry('6400', 'Dog Days');
+  const harness = settleHarness({
+    activePiles: [[entry], []],
+    fullRecord: {
+      cycle: 'c1', resources: {}, crew: '5', fate: '7', strangers: '0',
+      cycleStats: { c1: { crew: '5', fate: '7', strangers: '0' } },
+    },
+  });
+  await harness.ctx.settleExplorationDraw();
+  await flushAsync();
+  // 「如果没有失去船员，获得 +1 陌生人」＋ 命运 ≥7 的 +2：一次写 3。
+  assert.equal(harness.record.strangers, '3');
+  assert.equal(harness.record.cycleStats.c1.strangers, '3');
+  assert.equal(harness.record.crew, '5');
+  const receipt = harness.record.explorationBatchReceipts[harness.ctx.explorationRoundId(entry)];
+  assert.ok(receipt.applied['conditional:dog-days'], '坏日子整体作为一条自动效果结算');
+  assert.equal(harness.drawState.activePiles.flat().length, 0, '全部处理后本轮结束');
+});
+
+test('Dog Days without a recorded stranger count stays pending instead of guessing', async () => {
+  const entry = drawnEntry('6400', 'Dog Days');
+  const harness = settleHarness({
+    activePiles: [[entry], []],
+    fullRecord: { cycle: 'c1', resources: {}, crew: '5', fate: '7', cycleStats: { c1: { crew: '5', fate: '7' } } },
+  });
+  await harness.ctx.settleExplorationDraw();
+  assert.equal(harness.record.strangers, undefined, '没记录陌生人数量时不猜');
+  assert.match(harness.ctx.pendingExplorationEffects().join(' '), /补齐陌生人|手动处理完整效果/);
+  assert.equal(harness.drawState.activePiles.flat().length, 1);
+});
+
+// ---- 「Gain 1 A or B resource」：玩家二选一 -------------------------------------
+// 卡面写 "Gain 1 Calcified Knuckle Bone or Fleshy Mantle resource"：两个候选都在记录表
+// 里，是可以结算的收益，只是要玩家选一个。以前整串名字被当成单个资源名，报"未找到"。
+test('an "A or B" resource gain becomes a player choice between the two resources', () => {
+  const card = rules.getCard(dataset, 'c1', '6403');
+  const grant = card.grants.find((item) => item.alternatives);
+  assert.ok(grant, '二选一的收益要带 alternatives');
+  // dataset 来自另一个 vm realm，深比较前先过一趟 JSON。
+  assert.deepEqual(JSON.parse(JSON.stringify(grant.alternatives)).map((item) => item.key),
+    ['calcifiedKnuckle', 'fleshyMantle']);
+  assert.equal(card.unresolved.length, 0, '认出来之后就不该再报未识别');
+
+  // 直接结算它（Denounced 下该行不成立）：给玩家两个候选，而不是替他选。
+  const harness = settleHarness({ diplomacyBonus: 1 });
+  const block = harness.ctx.createExplorationSettleBlock({ id: '6403', name: 'Labyrinthian Vessel', day: 12 });
+  const labels = block.buttons.map((button) => button.textContent);
+  assert.equal(labels.filter(label=>label.startsWith('获得 ')).length,2,'two independently selectable resource buttons');
+  assert.ok(labels.some((label) => /钙化指节骨/.test(label)), `要能选钙化指节骨：${labels.join(' | ')}`);
+  assert.ok(labels.some((label) => /血肉块/.test(label)), `要能选血肉块：${labels.join(' | ')}`);
+  assert.ok(!labels.some((label) => label === '自动结算'), '还没选之前不能直接自动结算');
+});
+
+test('each Labyrinthian choice writes its selected resource and one Stranger in the same save',async()=>{
+  for(const [label,key,other] of [['钙化指节骨','c1-calcifiedKnuckle','c1-fleshyMantle'],['血肉块','c1-fleshyMantle','c1-calcifiedKnuckle']]){
+    const entry=drawnEntry('6403','Labyrinthian Vessel');
+    const h=settleHarness({diplomacyBonus:1,activePiles:[[entry],[]],fullRecord:{cycle:'c1',resources:{},fate:'0',strangers:'2',cycleStats:{c1:{fate:'0',strangers:'2'}}}});
+    const block=h.ctx.createExplorationSettleBlock(entry);
+    assert.match(textOf(block),/选择资源时一并结算/);
+    assert.ok(!block.buttons.some(button=>button.textContent==='结算记录表效果'),'the attached Stranger cannot bypass the resource choice');
+    const choice=buttonNamed(block,new RegExp('^获得 '+label));
+    await clickAndWait(choice);
+    assert.equal(h.alerts.length,0);assert.equal(h.written.length,1);
+    assert.equal(h.record.resources[key],1);assert.equal(h.record.resources[other]||0,0);
+    assert.equal(h.record.cycleStats.c1.strangers,'3');
+    assert.equal(h.record.strangers,'3');
+    assert.match(textOf(h.ctx.createExplorationSettleBlock(entry)),/陌生人 \+1/);
+    await clickAndWait(choice);await h.ctx.settleExplorationDraw();
+    assert.equal(h.record.resources[key],1);assert.equal(h.record.cycleStats.c1.strangers,'3');
+  }
+});
+
+test('one-click waits for a Labyrinthian resource choice, and undo refunds both parts without replacing later edits',async()=>{
+  const entry=drawnEntry('6403','Labyrinthian Vessel');
+  const h=settleHarness({diplomacyBonus:1,activePiles:[[entry],[]],fullRecord:{cycle:'c1',resources:{},fate:'0',strangers:'2',cycleStats:{c1:{fate:'0',strangers:'2'}}}});
+  await h.ctx.settleExplorationDraw();
+  assert.equal(h.record.cycleStats.c1.strangers,'2');
+  assert.equal(h.record.resources['c1-fleshyMantle']||0,0);
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry),/^获得 血肉块/));
+  const later=JSON.parse(JSON.stringify(h.record));later.strangers='5';later.cycleStats.c1.strangers='5';later.resources['c1-trireme']=4;
+  h.updateServerRecord(later);h.ctx.cachedArgoRecord=later;
+  await clickAndWait(buttonNamed(h.ctx.createExplorationSettleBlock(entry),'撤销结算'));
+  assert.equal(h.record.resources['c1-fleshyMantle'],0);assert.equal(h.record.resources['c1-trireme'],4);
+  assert.equal(h.record.cycleStats.c1.strangers,'4');
+  assert.equal(h.ctx.createExplorationSettleBlock(entry).buttons.filter(button=>button.textContent.startsWith('获得 ')).length,2);
+  await h.ctx.settleSingleExplorationEffects([entry]);assert.equal(h.record.cycleStats.c1.strangers,'4');
+});
+
+test('an old selected Labyrinthian resource gets its missing Stranger once, including an independently pending affliction',async()=>{
+  const entry=drawnEntry('6403','Labyrinthian Vessel');
+  const h=settleHarness({diplomacyBonus:1,activePiles:[[entry],[]],fullRecord:{cycle:'c1',resources:{'c1-calcifiedKnuckle':1},fate:'7',strangers:'2',cycleStats:{c1:{fate:'7',strangers:'2'}}}});
+  const context=h.ctx.explorationCardContext(entry,dataset.cards['c1:6403']);
+  const changes=rules.planChanges(dataset,'c1',[{resource:'calcifiedKnuckle',amount:1}]);
+  const receipt=h.ctx.explorationBatchReceipt(h.record,entry);
+  receipt.resource={changes,variant:'choice:0:calcifiedKnuckle',summary:'钙化指节骨 +1',context:h.ctx.explorationContextSnapshot(context)};
+  h.ctx.cachedArgoRecord=JSON.parse(JSON.stringify(h.record));
+  await h.ctx.settleSingleExplorationEffects([entry]);
+  assert.equal(h.record.cycleStats.c1.strangers,'3');assert.equal(h.record.resources['c1-calcifiedKnuckle'],1);
+  assert.equal(h.ctx.pendingExplorationEffects().length,1);
+  assert.match(h.ctx.pendingExplorationEffects()[0],/绝望/);
+  await h.ctx.settleSingleExplorationEffects([entry]);await h.ctx.settleExplorationDraw();
+  assert.equal(h.record.cycleStats.c1.strangers,'3');assert.equal(h.record.resources['c1-calcifiedKnuckle'],1);
+});
+
+test('a lost Labyrinthian choice response never adds either selected resource or Stranger twice',async()=>{
+  const entry=drawnEntry('6403','Labyrinthian Vessel');
+  const h=settleHarness({diplomacyBonus:1,activePiles:[[entry],[]],fullRecord:{cycle:'c1',resources:{},fate:'0',strangers:'0',cycleStats:{c1:{fate:'0',strangers:'0'}}}});
+  h.ctx.console={...console,warn:()=>{}};
+  const write=h.ctx.writeServerArgoRecord;let lost=true;
+  h.ctx.writeServerArgoRecord=async(...args)=>{const result=await write(...args);if(lost){lost=false;throw new Error('response lost');}return result;};
+  const choice=buttonNamed(h.ctx.createExplorationSettleBlock(entry),/^获得 血肉块/);
+  await clickAndWait(choice);
+  assert.equal(h.alerts.length,1);assert.equal(h.record.resources['c1-fleshyMantle'],1);assert.equal(h.record.strangers,'1');
+  await clickAndWait(choice);await h.ctx.settleSingleExplorationEffects([entry]);
+  assert.equal(h.record.resources['c1-fleshyMantle'],1);assert.equal(h.record.strangers,'1');
+});
+
+test('a legacy local resource settlement also migrates and recovers its missing attached Stranger',async()=>{
+  const entry=drawnEntry('6403','Labyrinthian Vessel');
+  const h=settleHarness({diplomacyBonus:1,activePiles:[[entry],[]],fullRecord:{cycle:'c1',resources:{'c1-calcifiedKnuckle':1},fate:'0',strangers:'2',cycleStats:{c1:{fate:'0',strangers:'2'}}}});
+  const context=h.ctx.explorationCardContext(entry,dataset.cards['c1:6403']);
+  const settlement=h.ctx.explorationSettlementStore(entry);
+  settlement.store[settlement.key]={changes:rules.planChanges(dataset,'c1',[{resource:'calcifiedKnuckle',amount:1}]),
+    variant:'choice:0:calcifiedKnuckle',summary:'钙化指节骨 +1',context:h.ctx.explorationContextSnapshot(context)};
+  await h.ctx.settleSingleExplorationEffects([entry]);
+  assert.equal(h.record.strangers,'3');assert.equal(h.record.resources['c1-calcifiedKnuckle'],1);
+  await h.ctx.settleSingleExplorationEffects([entry]);assert.equal(h.record.strangers,'3');
+});
+
+// ---- 一键结算：记录表效果 -------------------------------------------------------
+test('record-sheet effects settle in one click, and only Titan choices stay per-row', async () => {
+  const titanEntry = { id: '6433', name: 'Untamed Titan', day: 12 };
+  const batch = settleHarness({ diplomacyBonus: 2, fullRecord: { cycle: 'c1', resources: {}, fate: '0' } });
+  const block = batch.ctx.createExplorationSettleBlock(titanEntry);
+  const list = block.descendants().find((node) => node.className === 'exploration-settle-manual');
+  assert.ok(list, '效果列表还在');
+  const buttons = block.buttons.map((button) => button.textContent);
+  assert.equal(buttons.filter((label) => label === '自动结算').length, 1, '只留一个绿色结算按钮');
+  assert.equal(buttons.filter((label) => label === '应用到记录表').length, 0, '行内不再各给一个按钮');
+  assert.equal(buttons.filter((label) => label === '确认条件成立并结算').length, 0, '条件类也收进一键');
+
+  await clickAndWait(buttonNamed(block, '自动结算'));
+  assert.equal(batch.written.length, 1, '多条效果共用一次写表');
+  assert.deepEqual(batch.alerts, []);
+  const after = batch.ctx.createExplorationSettleBlock(titanEntry);
+  assert.equal(after.buttons.filter((button) => button.textContent === '自动结算').length, 0, '结算后按钮消失');
+});
+
+test('a Titan-loss row keeps its own controls instead of joining the one-click batch', () => {
+  const titans = [
+    { id: 'dream', name: 'Dream', count: 2, limit: 2, crippled: false },
+    { id: 'second', name: 'Other Titan', count: 1, limit: 1, crippled: false },
+  ];
+  const harness = settleHarness({
+    cycle: 'c2', factions: ['cyclopes'], fullRecord: { cycle: 'c2', resources: {}, cycleStats:{c2:{crewCounters:{crew:3,refugees:4,captives:0}}}, titans },
+  });
+  const block = harness.ctx.createExplorationSettleBlock({ id: '13624', name: 'Cyclopean Shrine of Iapetus', day: 12 });
+  const list = block.descendants().find((node) => node.className === 'exploration-settle-manual');
+  assert.equal(list.buttons.filter((button) => button.textContent === '结算记录表效果').length, 0,
+    '要挑泰坦的条目不能混进一键结算');
+  assert.equal(list.buttons.filter((button) => button.textContent === '应用到记录表').length, 1);
+  assert.ok(block.descendants().some((node) => node.tag === 'select'), '仍要给挑泰坦的下拉');
+});
+
+// ---- 延迟效果与定时战斗 ---------------------------------------------------------
+test('the encounter step completes the Timeline Battle instead of showing buttons', async () => {
+  const entry = drawnEntry('6403', 'Labyrinthian Vessel');
+  const harness = settleHarness({
+    diplomacyBonus: -2, activePiles: [[entry], []],
+    fullRecord: { cycle: 'c1', resources: {}, fate: '0' },
+  });
+  await harness.ctx.registerAutomaticExplorationDelays([entry]);
+  await flushAsync();
+  const queued = harness.record.explorationDelays.queue.find((item) => item.trigger === 'timeline-battle-start');
+  assert.equal(queued.status, 'waiting');
+
+  // 遭遇步骤的折叠条里不再有「开始定时战斗 / 定时战斗已完成」两个按钮。
+  const tools = harness.ctx.createDelayedExplorationStepTools('encounter');
+  assert.ok(tools);
+  assert.deepEqual(tools.buttons, []);
+
+  await harness.ctx.completeTimelineBattle();
+  await flushAsync();
+  assert.equal(harness.record.explorationDelays.timelineEpochs.c1, 1, '战斗结束推进纪元');
+  assert.notEqual(harness.record.explorationDelays.queue[0].status, 'waiting', '战斗开始效果不再挂着等待');
+  // 同一天重复结算不会把纪元推上去（事件编号按循环+日期去重）。
+  await harness.ctx.completeTimelineBattle();
+  await flushAsync();
+  assert.equal(harness.record.explorationDelays.timelineEpochs.c1, 1);
+});
+
+test('a Timeline battle day no longer renders duplicate battle buttons in the encounter step', () => {
+  const harness = settleHarness();
+  assert.equal(harness.ctx.createDelayedExplorationStepTools('encounter'), null);
+  harness.ctx.todayTrackIcons = () => [{ className: 'battle' }];
+  assert.equal(harness.ctx.createDelayedExplorationStepTools('encounter'), null,
+    '战斗当天没有延迟效果要展示时，遭遇步骤不再多出一块按钮');
+  assert.match(source, /title: "今日战斗"/);
+  assert.match(source, /if \(step\.id === "encounter" && checkbox\.checked\) void completeTimelineBattle\(\);/);
+});
+
+// ---- 派系关系行 -----------------------------------------------------------------
+test('the faction row lists all three factions and marks only the one the AG tile is on', () => {
+  const plain = (values) => JSON.parse(JSON.stringify(values));
+  const harness = settleHarness({
+    factions: ['labyrinthians'],
+    diplomacyByFaction: { minoians: 1, labyrinthians: 5, hornsworn: -3 },
+  });
+  const items = plain(harness.ctx.currentMapFactionStatusItems());
+  assert.deepEqual(items.map((item) => item.text), [
+    '米诺斯人：外交状态 (+1)',
+    '迷宫徒：外交状态 (+5)',
+    '角誓者：外交状态 (-3)',
+  ], '三个派系都要列出，各自的关系按记录读');
+  assert.deepEqual(items.map((item) => item.current), [false, true, false],
+    '只有 AG 当前格所在的那个派系标 current');
+
+  const offTile = settleHarness({ factions: ['none'] });
+  assert.deepEqual(plain(offTile.ctx.currentMapFactionStatusItems()).map((item) => item.current),
+    [false, false, false], '「无阵营」不加粗任何一行');
+});
+
+test('the faction row is always rendered, and the report keeps only its summary line', () => {
+  const harness = settleHarness();
+  harness.ctx.state.exploration.lastSettlementByCycle = {
+    c1: { completed: ['自动发放了 1 点资源'], pending: [] },
+  };
+  const tools = harness.ctx.createExplorationTools();
+  const report = tools.descendants().find((node) => node.className === 'exploration-settle exploration-batch-report');
+  assert.ok(report, '结算报告还在');
+  assert.equal(report.descendants().some((node) => node.className === 'exploration-settle-details'), false,
+    '「查看自动结算明细」已经删掉');
+  const result = report.children.find((node) => node.className === 'exploration-batch-result');
+  assert.ok(result, '概括行直接留在报告里');
+  assert.match(result.textContent, /本次自动处理 1 项。全部效果已处理。/);
+  const status = tools.descendants().find((node) => node.className === 'exploration-status');
+  assert.ok(status.children.some((node) => node.className === 'exploration-faction-status'),
+    '派系关系常驻显示');
+});
+
+test('a settlement with nothing auto-resolved still shows its summary line', () => {
+  const harness = settleHarness();
+  harness.ctx.state.exploration.lastSettlementByCycle = { c1: { completed: [], pending: ['需要手动确认一项'] } };
+  const tools = harness.ctx.createExplorationTools();
+  const report = tools.descendants().find((node) => node.className === 'exploration-settle exploration-batch-report');
+  const result = report.children.find((node) => node.className === 'exploration-batch-result');
+  assert.ok(result, '概括行要直接可见');
+  assert.match(result.textContent, /本次自动处理 0 项。/);
+  assert.match(result.textContent, /还有 1 项需要选择、确认或手动处理/);
+  assert.ok(report.descendants().some((node) => node.className === 'exploration-settle-manual'),
+    '待手动处理的清单仍然直接列出');
+});
+
+test('every cycle prints its faction names in Chinese in the faction row', () => {
+  const plain = (values) => JSON.parse(JSON.stringify(values));
+  const expected = {
+    c1: ['米诺斯人', '迷宫徒', '角誓者'],
+    c2: ['希洛人', '独眼巨人', '邦联同盟'],
+    c3: ['太阳后裔', '德尔菲人', '暮光守望'],
+    c4: ['浪费者', '亚里士多德远征军', '云贼'],
+    c5: ['阿瑞特追随者', '保护国', '弃民先锋'],
+  };
+  for (const [cycle, names] of Object.entries(expected)) {
+    const harness = settleHarness({ cycle });
+    const texts = plain(harness.ctx.currentMapFactionStatusItems()).map((item) => item.text);
+    assert.equal(texts.length, 3, `${cycle} 要列出三个派系`);
+    names.forEach((name, index) => {
+      assert.ok(texts[index].startsWith(`${name}：`),
+        `${cycle} 第 ${index + 1} 个派系要用中文名 ${name}，实际：${texts[index]}`);
+    });
+    // 不能漏出英文名（"Wasters"/"Cloud Thieves"/"Followers of Areté" 之类）。
+    texts.forEach((text) => {
+      assert.ok(!/[A-Za-z]{4,}/.test(text.replace(/\([^)]*\)/g, '')),
+        `${cycle} 的派系行不该出现英文名：${text}`);
+    });
+  }
+});
+
+// ---- 延迟效果：登记 / 撤销 -------------------------------------------------------
+test('a card with a delayed effect can register and withdraw it', async () => {
+  const harness = settleHarness({ diplomacyBonus: -2 });
+  const entry = { id: '6403', name: 'Labyrinthian Vessel', day: 12 };
+  const block = harness.ctx.createExplorationSettleBlock(entry);
+  await clickAndWait(buttonNamed(block, '登记延迟效果'));
+  assert.equal(harness.record.explorationDelays.queue.length, 1);
+  assert.equal(harness.record.explorationDelays.queue[0].trigger, 'timeline-battle-start');
+  assert.equal(harness.record.explorationDelays.queue[0].modifier, 'escalate');
+  assert.equal(harness.ctx.explorationEffectState(entry).delays['manual:4'],
+    harness.record.explorationDelays.queue[0].receiptId);
+
+  const registered = harness.ctx.createExplorationSettleBlock(entry);
+  await clickAndWait(buttonNamed(registered, '撤销延迟安排'));
+  assert.equal(harness.record.explorationDelays.queue[0].status, 'cancelled');
+  assert.equal(harness.ctx.explorationEffectState(entry).delays['manual:4'], undefined);
+});
+
+test('the development step exposes the due-tech repair button', () => {
+  const harness = settleHarness({ cycle: 'c2' });
+  assert.ok(harness.ctx.createDelayedExplorationStepTools('development') === null,
+    '没有到期修复时开发步骤不多出按钮');
+  const tools = harness.ctx.createDelayedExplorationStepTools('explore');
+  assert.equal(tools, null, '其它步骤没有这套工具');
+});
+
+// ---- 记录表效果：一键结算 / 撤销 -------------------------------------------------
+test('record-sheet effects can be settled in one click and undone', async () => {
+  const harness = settleHarness({
+    diplomacyBonus: 2, fullRecord: { cycle: 'c1', resources: {}, fate: '0' },
+  });
+  const entry = { id: '6433', name: 'Untamed Titan', day: 12 };
+  const block = harness.ctx.createExplorationSettleBlock(entry);
+  await clickAndWait(buttonNamed(block, '自动结算'));
+  assert.equal(harness.written.length, 1);
+  const applied = harness.ctx.createExplorationSettleBlock(entry);
+  await clickAndWait(buttonNamed(applied, '撤销记录表效果'));
+  assert.equal(harness.written.length, 2, '撤销也要写一次');
+  assert.deepEqual(harness.alerts, []);
+});
+
+test('a Titan loss needs an explicit choice before it can write', async () => {
+  const titans = [
+    { id: 'dream', name: 'Dream', count: 2, limit: 2, crippled: false },
+    { id: 'second', name: 'Other Titan', count: 1, limit: 1, crippled: false },
+    { id: 'keep', name: 'Retained Titan', count: 1, limit: 1, crippled: false },
+  ];
+  const harness = settleHarness({
+    cycle: 'c4', diplomacyBonus: -2, factions: ['aristotelians'], fullRecord: { cycle: 'c4', resources: {}, fate: '0', titans },
+  });
+  const entry = { id: '9343', name: 'Aristotelian Army', day: 12 };
+  const block = harness.ctx.createExplorationSettleBlock(entry);
+  const selectors = block.descendants().filter((node) => node.tag === 'select');
+  assert.equal(selectors.length, 2, '要按失去数量给出选择框');
+  await clickAndWait(buttonNamed(block, '应用到记录表'));
+  assert.equal(harness.written.length, 0, '没选泰坦就不能改记录表');
+  assert.match(harness.alerts[0], /选择要失去的泰坦/);
+
+  selectors[0].value = 'dream';
+  selectors[1].value = 'second';
+  await clickAndWait(buttonNamed(block, '应用到记录表'));
+  assert.equal(harness.written.length, 1);
+  assert.deepEqual(harness.record.titans, [{ ...titans[0], count: 1 }, titans[2]]);
+  const applied = harness.ctx.createExplorationSettleBlock(entry);
+  await clickAndWait(buttonNamed(applied, '撤销记录表效果'));
+  assert.deepEqual(harness.record.titans, titans, '撤销要还原数量、身份、顺序与残废状态');
+});
+
+// ---- 商人兑换 -------------------------------------------------------------------
+test('the merchant UI exchanges, counts up to the limit, and can be undone', async () => {
+  const harness = settleHarness({
+    diplomacyBonus: 2,
+    fullRecord: {
+      cycle: 'c1', resources: { 'c1-trireme': 9, 'c1-monument': 0 }, fate: '0',
+      cycleStats: { c1: { trireme: '9', monument: '0', fate: '0' } },
+    },
+  });
+  const entry = { id: '13400', name: 'Theban Trader', day: 12 };
+  const block = harness.ctx.createExplorationSettleBlock(entry);
+  const select = block.descendants().find((node) => node.tag === 'select');
+  const times = block.descendants().find((node) => node.tag === 'input');
+  assert.ok(select && times, '商人要给出兑换项目与次数两个控件');
+  assert.equal(select.children[0].textContent,'3 船材（库存 9） → 1 石筑（库存 0）');
+  // 第一项兑换是「3 船材 → 1 石筑」，给够船材。
+  const tradeId = select.children[0].value;
+  select.value = tradeId;
+  times.value = '1';
+  await clickAndWait(buttonNamed(block, '执行兑换'));
+  assert.equal(harness.written.length, 1, '兑换要写一次记录表');
+  assert.equal(harness.alerts.length, 0, `兑换不该报错：${harness.alerts.join(' | ')}`);
+  const roundId = harness.ctx.explorationRoundId(entry);
+  assert.equal(harness.record.explorationTradeRounds[roundId].count, 1, '兑换次数要累加');
+
+  const after = harness.ctx.createExplorationSettleBlock(entry);
+  assert.match(textOf(after), /商人交易 1\/5/);
+  assert.match(textOf(after),/3 船材（库存 6） → 1 石筑（库存 1）/);
+  await clickAndWait(buttonNamed(after, '撤销上次兑换'));
+  // 撤销掉最后一次兑换后，本回合的交易记录整条消失（而不是留个 0）。
+  assert.equal(harness.record.explorationTradeRounds[roundId], undefined, '撤销要把交易记录清掉');
+  const reverted=harness.ctx.createExplorationSettleBlock(entry);
+  assert.match(textOf(reverted),/3 船材（库存 9） → 1 石筑（库存 0）/);
+  const reward=reverted.descendants().find(node=>node.tag==='select' && node.getAttribute('aria-label')==='商人奖励资源');
+  assert.ok(reward,'Friendly+ reward provides a manual resource choice');
+  assert.equal(reward.value,'','the player must select the reward explicitly');
+  reward.value='muscleCluster';
+  const claim=buttonNamed(reverted,'领取奖励资源');
+  await clickAndWait(claim);await clickAndWait(claim);
+  assert.equal(harness.record.resources['c1-muscleCluster'],1,'the selected reward is written once');
+  assert.equal(harness.record.explorationTradeRounds[roundId],undefined,'reward does not spend a trade');
+  await clickAndWait(buttonNamed(harness.ctx.createExplorationSettleBlock(entry),'撤销奖励资源'));
+  assert.equal(harness.record.resources['c1-muscleCluster'],undefined);
+  const neutral=settleHarness({diplomacyBonus:0});
+  assert.ok(!neutral.ctx.createExplorationSettleBlock(entry).descendants().some(node=>node.tag==='select' && node.getAttribute('aria-label')==='商人奖励资源'));
+  assert.deepEqual(harness.alerts, []);
+});
+
+// ---- String Wish（c4:9333）-------------------------------------------------------
+test('String Wish registers its five marks and can be settled and undone', async () => {
+  const harness = settleHarness({
+    cycle: 'c4',
+    fullRecord: { cycle: 'c4', resources: {}, fate: '0' },
+  });
+  const entry = { id: '9333', name: 'String Wish', day: 12 };
+  const block = harness.ctx.createExplorationSettleBlock(entry);
+  assert.ok(block);
+  const labels = block.buttons.map((button) => button.textContent);
+  assert.ok(labels.some((label) => /获得资源并登记|还款|持续标记/.test(label)),
+    `Wish 要给出结算入口：${labels.join(' | ')}`);
+  const settle = block.buttons.find((button) => /获得资源并登记/.test(button.textContent))
+    || block.buttons[0];
+  await clickAndWait(settle);
+  assert.equal(harness.written.length >= 1, true, 'Wish 结算要写记录表');
+  assert.ok(harness.record.explorationPersistentEffects?.c4?.stringWish, '要登记持续标记');
+  const settled = harness.ctx.createExplorationSettleBlock(entry);
+  const undo = settled.buttons.find((button) => /撤销持续标记结算/.test(button.textContent));
+  assert.ok(undo, `结算后要能撤销：${settled.buttons.map((b) => b.textContent).join(' | ')}`);
+  await clickAndWait(undo);
+  assert.equal(harness.record.explorationPersistentEffects?.c4?.stringWish, undefined,
+    '撤销要清掉持续标记');
+});
+
+// ---- 整堆禁止获得资源 -----------------------------------------------------------
+test('a stack prohibition blocks positive grants but keeps the rest', () => {
+  const entry = { id: '9328', name: 'Persian Trader', day: 12 };
+  // 同一堆里有 c4:9326（整堆禁止获得资源）时，正收益被拦下并单独列出。
+  const blocked = settleHarness({
+    cycle: 'c4',
+    activePiles: [[{ id: '9326', name: 'Prohibition', day: 12 }, entry], []],
+  });
+  const blockedBlock = blocked.ctx.createExplorationSettleBlock(entry);
+  assert.match(textOf(blockedBlock), /禁止资源收益|禁止获得资源/);
+  // 没有那条限制时，同一张卡正常显示自己的收益。
+  const plain = settleHarness({ cycle: 'c4' });
+  const plainBlock = plain.ctx.createExplorationSettleBlock(entry);
+  assert.ok(!/禁止资源收益/.test(textOf(plainBlock)));
 });

@@ -108,6 +108,56 @@ assert.equal(mineshaftPlan.variants.length, 2);
 assert.match(mineshaftPlan.variants[1].label, /卡面图标条件/, "图标条件的按钮标题要短");
 assert.deepEqual(mineshaftPlan.variants[1].grants.map((grant) => grant.amount), [2]);
 
+// --- Cycle V's card spelling resolves to the record-sheet resource ---------- //
+const c5Friendly = { cycleId: "c5", diplomacy: [{ id: "followersOfArete", bonus: 1 }] };
+const c5Neutral = { cycleId: "c5", diplomacy: [{ id: "followersOfArete", bonus: 0 }] };
+const c5Denounced = { cycleId: "c5", diplomacy: [{ id: "followersOfArete", bonus: -2 }] };
+for (const [cardId, baseAmount, friendlyAmount] of [["10343", 1, 2], ["10344", 2, 3]]) {
+  const card = rules.getCard(dataset, "c5", cardId);
+  assert.equal(card.kind, "resource-only", `${card.key} 的未来承诺残躯应可完整结算`);
+  assert.equal(card.unresolved.length, 0, `${card.key} 不应再有资源名称漏匹配`);
+  const base = rules.plan(card, c5Neutral);
+  const upgraded = rules.plan(card, c5Friendly);
+  assert.equal(base.status, "auto");
+  assert.equal(upgraded.status, "auto");
+  assert.deepEqual(base.grants.map((grant) => [grant.resource, grant.amount]), [["promisedFuturesCarcass", baseAmount]]);
+  assert.deepEqual(upgraded.grants.map((grant) => [grant.resource, grant.amount]), [["promisedFuturesCarcass", friendlyAmount]]);
+  assert.equal(rules.planChanges(dataset, "c5", upgraded.grants)[0].storageKey, "promisedFuturesCarcass", "c4/c5 共用资源不带循环前缀");
+}
+const spatialAnomaly = rules.getCard(dataset, "c5", "10342");
+assert.equal(spatialAnomaly.kind, "resource-plus", "10342 仍有群体属性收益待办");
+assert.equal(spatialAnomaly.unresolved.length, 0);
+const spatialNeutral = rules.plan(spatialAnomaly, c5Neutral);
+const spatialDenounced = rules.plan(spatialAnomaly, c5Denounced);
+assert.deepEqual(spatialNeutral.grants.map((grant) => [grant.resource, grant.amount]), [["promisedFuturesCarcass", 2]]);
+assert.deepEqual(spatialDenounced.grants.map((grant) => [grant.resource, grant.amount]), [["promisedFuturesCarcass", 2]]);
+assert.equal(spatialNeutral.manual.length, 0);
+assert.equal(spatialDenounced.manual.length, 1);
+assert.equal(spatialDenounced.manual[0].text, "Gain +3 A as a group.");
+
+// --- Cycle V's worst diplomacy status has its own printed badge ------------ //
+const c5NemesisAligned = { cycleId: "c5", diplomacy: [{ id: "followersOfArete", bonus: -3 }] };
+const listeningPost = rules.getCard(dataset, "c5", "10329");
+for (const context of [c5Friendly, c5Neutral, c5Denounced]) {
+  assert.ok(!rules.plan(listeningPost, context).manual.some((item) => item.badge === "Aligned with Nemesis"), "非 -3 外交不应显示与宿敌结盟分支");
+}
+const listeningPostAligned = rules.plan(listeningPost, c5NemesisAligned);
+assert.equal(listeningPostAligned.manual.length, 1);
+assert.equal(listeningPostAligned.manual[0].text, "Lose -1 Titan.");
+assert.equal(listeningPostAligned.manual[0].badge, "Aligned with Nemesis");
+assert.equal(rules.plan(listeningPost, { cycleId: "c5", diplomacy: [] }).manual.some((item) => item.badge === "Aligned with Nemesis" && item.unknown), true, "缺少外交值仍须确认分支");
+const nemesisAlignedItems = Object.values(dataset.cards).filter((card) => card.cycleId === "c5")
+  .flatMap((card) => [...card.grants.map((grant) => ({ ...grant, badge: grant.condition?.badge })), ...card.manual])
+  .filter((item) => item.badge === "Aligned with Nemesis");
+assert.ok(nemesisAlignedItems.length > 0);
+for (const item of nemesisAlignedItems) {
+  assert.equal(item.condition?.type, "diplomacy", "所有与宿敌结盟徽章都必须结构化为外交条件");
+  assert.equal(item.condition.mode, "atMost");
+  assert.equal(item.condition.bonus, -3);
+  assert.equal(rules.conditionMet(item.condition, c5Denounced), false);
+  assert.equal(rules.conditionMet(item.condition, c5NemesisAligned), true);
+}
+
 // --- record write path ---------------------------------------------------- //
 const triremeChanges = rules.planChanges(dataset, "c1", rules.plan(tradePost, friendly).grants);
 assert.equal(triremeChanges[0].storageKey, "c1-trireme", "c1 专属资源带循环前缀");
@@ -143,6 +193,11 @@ const counts = cards.reduce((acc, card) => {
   acc[card.kind] = (acc[card.kind] || 0) + 1;
   return acc;
 }, {});
-assert.deepEqual(counts, { "resource-only": 38, "resource-plus": 102, none: 83 });
+// c1:6403 的 Friendly 收益（"Gain 1 Calcified Knuckle Bone or Fleshy Mantle"）以前因为
+// 名字里带 "or" 认不出来，整张卡被算成 none；现在按二选一解析后变成 resource-plus。
+assert.deepEqual(counts, { "resource-only": 40, "resource-plus": 104, none: 79 });
+const labyrinthChoices=rules.plan(rules.getCard(dataset,'c1','6403'),{cycleId:'c1',diplomacy:[{id:'labyrinthians',bonus:1}]}).variants;
+assert.deepEqual(labyrinthChoices.map(variant=>[variant.id,variant.grants[0].resource]),[
+  ['choice:0:calcifiedKnuckle','calcifiedKnuckle'],['choice:0:fleshyMantle','fleshyMantle']]);
 
 console.log("exploration-card-resource-rules tests passed");

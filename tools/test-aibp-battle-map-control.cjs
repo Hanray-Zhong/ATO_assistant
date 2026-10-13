@@ -7,6 +7,14 @@ assert.match(pageHtml, /<div class="battle-map-side" role="region" aria-label="�
 assert.doesNotMatch(pageHtml, /<aside class="battle-map-side"/);
 assert.match(pageHtml, /data-battle-map-setup-select/);
 assert.match(pageHtml, /data-battle-map-card-list/);
+// 攻击距离是扁平步进器：−／+ 两个按钮 + 一个不画原生上下箭头的数字框。
+assert.match(pageHtml, /data-battle-map-los-reach-down/);
+assert.match(pageHtml, /data-battle-map-los-reach-up/);
+assert.match(pageHtml, /<input type="number"[^>]*data-battle-map-los-reach(?![-\w])/);
+const mapCss = fs.readFileSync(path.join(__dirname, "..", "aibp", "battle_map_control.css"), "utf8");
+assert.match(mapCss, /\.battle-map-los-stepper\s*\{[^}]*display:\s*flex/);
+assert.match(mapCss, /\.battle-map-los-stepper input::-webkit-inner-spin-button/,
+  "原生上下箭头必须藏掉，否则扁平化失效");
 
 class FakeElement {
   constructor(tagName = "div") {

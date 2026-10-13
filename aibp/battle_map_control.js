@@ -83,6 +83,8 @@
     const losStats = root.querySelector("[data-battle-map-los-stats]");
     const losReachInput = root.querySelector("[data-battle-map-los-reach]");
     const losReachField = root.querySelector("[data-battle-map-los-reach-field]");
+    const losReachDown = root.querySelector("[data-battle-map-los-reach-down]");
+    const losReachUp = root.querySelector("[data-battle-map-los-reach-up]");
     const losFacingSelect = root.querySelector("[data-battle-map-los-facing]");
     const losFacingField = root.querySelector("[data-battle-map-los-facing-field]");
     const losDimToggle = root.querySelector("[data-battle-map-los-dim]");
@@ -269,10 +271,16 @@
     }
 
     // ---- line of sight ---------------------------------------------------
-    // 当前始徒的面板数据（尺寸/移速/盲点/特殊视线），按该图的初始等级取。
+    // 当前始徒的面板数据（尺寸/移速/盲点/特殊视线）。移速读 Boss 等级属性表，等级取
+    // **当前等级**（升到 4 级就按 4 级算），拿不到当前等级时才退回该图的初始等级。
+    function losLevel(map) {
+      const level = options.getLevel?.();
+      return level === undefined || level === null || level === "" ? map?.startLevel : level;
+    }
+
     function losProfile(map) {
       if (losState.source !== "apostle") return null;
-      return window.BattleTerrain.getApostleProfile(options.getApostle(), map?.startLevel) || null;
+      return window.BattleTerrain.getApostleProfile(options.getApostle(), losLevel(map)) || null;
     }
 
     // 来源脚印边长：泰坦固定 1 格，始徒直接读面板图示的尺寸。
@@ -356,15 +364,20 @@
     }
 
     // 计算与绘制都在 battle_los.js，第二屏调同一对函数，所以两屏逐格一致。
+    // 移速取 Boss 等级属性表里**当前等级**的值（不是建图时的初始等级），所以升到 4 级
+    // 的百臂巨人立刻从 6 变 7；这份 speed 也进 losState 快照，第二屏照抄同一个数。
     function renderLos(map) {
       if (!losLayer || !window.BattleLOS) return;
+      // 移速已经算在 profile 里，这里连同当前等级一起交给引擎，避免它自己再按地图初始
+      // 等级算一遍。
+      const engineOptions = { level: options.getLevel?.(), speed: losProfile(map)?.speed };
       // 先建一次拿到 occ，据此判断是否跨越高地边界；若自动改了 elevated，重建一次再画。
       let overlay = window.BattleLOS.buildLosOverlay(
-        map, losState, window.BattleTerrain, options.getApostle());
+        map, losState, window.BattleTerrain, options.getApostle(), engineOptions);
       lastOcc = overlay.occ;
       if (syncAutoElevated(map)) {
         overlay = window.BattleLOS.buildLosOverlay(
-          map, losState, window.BattleTerrain, options.getApostle());
+          map, losState, window.BattleTerrain, options.getApostle(), engineOptions);
         lastOcc = overlay.occ;
       }
       lastOverlay = overlay;
@@ -425,6 +438,7 @@
     }
 
     // 面板数据一行：尺寸 / 移速 / 攻击距离 / 射程，并注明盲区与特殊视线。
+    // 移速后面的小字是它取自 Boss 等级属性表的哪一级，方便核对。
     function renderLosStats(map) {
       if (!losStats) return;
       const profile = losProfile(map);
@@ -434,9 +448,12 @@
       }
       losStats.hidden = false;
       const name = options.getApostle().replaceAll("_", " ");
+      const speedLevel = Number.isFinite(Number(profile.speedLevel)) && profile.speedLevel > 1
+        ? `${profile.speedLevel} 级`
+        : "";
       const parts = [
         `${name} ${profile.size}×${profile.size}`,
-        `移速 ${speedLabel(profile.speed)}`,
+        `移速 ${speedLabel(profile.speed)}${speedLevel ? `（${speedLevel}）` : ""}`,
         `攻击距离 ${losState.reach}`,
       ];
       if (profile.speed === Infinity) parts.push("射程 全图");
@@ -459,16 +476,17 @@
       losToggle.textContent = losState.active ? "关闭" : "开启";
       if (losBody) losBody.hidden = !losState.active;
       if (losSourceSelect) {
-        // 始徒那一项的标签跟着当前始徒的面板尺寸走。
+        // 始徒那一项的标签跟着当前始徒的面板尺寸走（尺寸与等级无关，用同一个等级口径即可）。
         const apostleOption = losSourceSelect.querySelector('option[value="apostle"]');
         if (apostleOption) {
-          const size = window.BattleTerrain.getApostleProfile(options.getApostle(), map?.startLevel)?.size;
+          const size = window.BattleTerrain.getApostleProfile(options.getApostle(), losLevel(map))?.size;
           apostleOption.textContent = size ? `始徒（${size}×${size}）` : "始徒";
         }
         losSourceSelect.value = losState.source;
       }
       if (losReachField) losReachField.hidden = !profile;
       if (losReachInput) losReachInput.value = String(losState.reach);
+      syncReachButtons();
       // 朝向对**任何**始徒都要显示：箭头是常驻标注，不再只服务于盲区。
       // 泰坦没有朝向（单格、无盲区、面板也没印），仍然隐藏。
       if (losFacingField) losFacingField.hidden = !profile;
@@ -731,10 +749,42 @@
     });
 
     // 攻击距离：近战填 1，远程 AI 牌按牌面写的距离填。
-    losReachInput?.addEventListener("input", () => {
-      const value = Math.round(Number(losReachInput.value));
-      losState.reach = Number.isFinite(value) ? Math.min(20, Math.max(0, value)) : 1;
+    const REACH_MIN = 0;
+    const REACH_MAX = 20;
+    // 把任意输入收敛成 0–20 的整数；空值/乱填退回下限。
+    function normalizeReach(value) {
+      const numeric = Math.round(Number(value));
+      if (!Number.isFinite(numeric)) return REACH_MIN;
+      return Math.min(REACH_MAX, Math.max(REACH_MIN, numeric));
+    }
+    // −／+ 与手动输入走同一条路：改 losState.reach → 重画 → 通知第二屏。
+    function setReach(value) {
+      const next = normalizeReach(value);
+      if (losReachInput) losReachInput.value = String(next);
+      if (next === losState.reach) return;
+      losState.reach = next;
       renderLosAndNotify();
+    }
+    // 步进器按钮到边界就置灰，让「不能再调」一眼可见。
+    function syncReachButtons() {
+      if (losReachDown) losReachDown.disabled = losState.reach <= REACH_MIN;
+      if (losReachUp) losReachUp.disabled = losState.reach >= REACH_MAX;
+    }
+
+    losReachDown?.addEventListener("click", () => setReach(losState.reach - 1));
+    losReachUp?.addEventListener("click", () => setReach(losState.reach + 1));
+
+    losReachInput?.addEventListener("input", () => {
+      const numeric = Math.round(Number(losReachInput.value));
+      // 输入框清空或填了非数字时先不动，等 blur 再收敛，免得打字打到一半被改掉。
+      if (!Number.isFinite(numeric)) return;
+      losState.reach = normalizeReach(numeric);
+      renderLosAndNotify();
+    });
+
+    // 失焦时把输入框拉回合法的整数，避免留下空框或 37 这种越界值。
+    losReachInput?.addEventListener("blur", () => {
+      losReachInput.value = String(losState.reach);
     });
 
     losFacingSelect?.addEventListener("change", () => {
@@ -838,6 +888,7 @@
       // 导出一份可序列化快照，由 index.html 塞进第二屏 payload 的 los 字段。
       getLosSnapshot() {
         if (!losState.active) return { active: false };
+        const profile = losProfile(currentMap());
         return {
           active: true,
           source: losState.source,
@@ -850,6 +901,10 @@
           elevated: losState.elevated,
           showRange: losState.showRange,
           reach: losState.reach,
+          // 移速跟着快照走：第二屏没有 Boss 等级属性表，照搬这个数才能和主屏逐格一致。
+          // 快照要过 JSON，而 JSON 会把 Infinity 变成 null，所以 ∞ 用「∞」字符串表示；
+          // 泰坦没有面板数据，干脆不传这个字段（传 null 会被当成 0）。
+          ...(profile ? { speed: profile.speed === Infinity ? "∞" : profile.speed } : {}),
           facing: losState.facing,
           moveTarget: losState.moveTarget
             ? { column: losState.moveTarget.column, row: losState.moveTarget.row }

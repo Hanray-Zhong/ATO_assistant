@@ -1,7 +1,7 @@
-// C4 主控制台：日期轨没有上限，而且每一天都算战斗日。
-// 1) battleEveryDay 让日期轨和「今日战斗」提醒对 C4 的任意一天都成立，包括时间表
-//    最后一行（Day 96）之后的续推日；
-// 2) nextDay() 走到最后一行后继续按数字 +1，不停在 96；
+// C4 主控制台：按循环 IV 记录表标记战斗日，日期轨没有上限。
+// 1) Day 93 及以前只在表上标有战斗的日期提醒，Day 94 起每日战斗，包括时间表
+//    扩展到 Day 200 的全部日期，以及 200 之后的续推日；
+// 2) nextDay() 走到最后一行后继续按数字 +1，不停在 200；
 // 3) trackEntriesForRender() 给时间表之外的当天补一行，否则日期轨里没有「当前」。
 const fs = require('node:fs');
 const path = require('node:path');
@@ -94,51 +94,79 @@ function setupRender(day) {
   return {ctx, rows};
 }
 
-test('C4 每天都有战斗，时间表之外的日子也算', () => {
+// 从用户提供的 A10.5 循环 IV 阿尔戈号记录表第 2 页逐日核对的战斗标记。
+const printedBattleDays = [1, 7, 13, 19, 25, 31, 37, 43, 49, 55, 61, 67, 73, 79, 84, 88, 91, 93, 94, 95, 96];
+
+test('C4 原时间表与记录表一致，日期轨扩展至 200 天且新增日期每天战斗', () => {
   const ctx = setup();
   const track = ctx.dateTrackData.c4;
-  assert.equal(track.battleEveryDay, true);
-  assert.equal(track.battleDays, undefined);
-  assert.equal(track.entries.at(-1).day, 96);
-  for (const day of [0, 1, 2, 6, 17, 18, 50, 78, 79, 80, 96, 97, 120, 999]) {
+  assert.equal(track.entries.length, 201);
+  assert.equal(track.entries[0].day, 0);
+  assert.equal(track.entries.at(-1).day, 200);
+  for (let day = 97; day <= 200; day += 1) {
+    assert.equal(track.entries[day].day, day, `扩展日期 Day ${day} 缺失`);
+    assert.ok(ctx.dateTrackIcons(track.entries[day], track).some(battleIcon), `Day ${day} 缺少战斗标记`);
+    ctx.state.day = day;
+    assert.ok(ctx.getStepTrackReminders('encounter').some(reminder => reminder.title === '今日战斗'), `Day ${day} 缺少今日战斗提醒`);
+  }
+  for (let day = 0; day <= 96; day += 1) {
+    const expected = printedBattleDays.includes(day);
+    assert.equal(ctx.isTrackBattleDay(day, track), expected, `C4 Day ${day} 战斗日判断错误`);
+    assert.equal(ctx.dateTrackIcons({day}, track).some(battleIcon), expected, `C4 Day ${day} 日期轨战斗标记错误`);
+  }
+  for (const day of [97, 120, 999, 5000]) {
     assert.equal(ctx.isTrackBattleDay(day, track), true, `C4 Day ${day} 应该是战斗日`);
     assert.ok(ctx.dateTrackIcons({day}, track).some(battleIcon), `C4 Day ${day} 日期轨缺少战斗标记`);
+  }
+  for (const day of [null, undefined, NaN, Infinity, -1, 94.5, 'T6/00']) {
+    assert.equal(ctx.isTrackBattleDay(day, track), false, `无效日期 ${day} 不应触发战斗`);
   }
 });
 
 test('其它循环仍按各自的 battleDays 标记', () => {
   const ctx = setup();
-  const c2 = ctx.dateTrackData.c2;
-  assert.ok(!ctx.dateTrackIcons({day: 2}, c2).some(battleIcon), 'C2 Day 2 不该是战斗日');
-  assert.ok(ctx.dateTrackIcons({day: 7}, c2).some(battleIcon), 'C2 Day 7 应该是战斗日');
-  assert.equal(ctx.isTrackBattleDay(null, c2), false);
+  for (const cycle of ['c1', 'c2', 'c3', 'c5']) {
+    const track = ctx.dateTrackData[cycle];
+    for (let day = 0; day <= 120; day += 1) {
+      const expected = track.battleDays.includes(day);
+      assert.equal(ctx.isTrackBattleDay(day, track), expected, `${cycle} Day ${day}`);
+      assert.equal(ctx.dateTrackIcons({day}, track).some(battleIcon), expected, `${cycle} Day ${day} 战斗标记`);
+    }
+    assert.equal(ctx.isTrackBattleDay(null, track), false);
+  }
 });
 
-test('今日战斗提醒在 C4 的每一天都会出现，包括 96 之后', () => {
+test('今日战斗提醒与记录表一致，包括 93/94 边界及 96 之后', () => {
   const ctx = setup();
-  for (const day of [3, 96, 97, 150]) {
+  for (let day = 0; day <= 96; day += 1) {
     ctx.state.day = day;
-    const reminders = ctx.getStepTrackReminders('encounter');
-    assert.ok(reminders.some(reminder => reminder.title === '今日战斗'), `C4 Day ${day} 缺少今日战斗提醒`);
+    const hasReminder = ctx.getStepTrackReminders('encounter').some(reminder => reminder.title === '今日战斗');
+    assert.equal(hasReminder, printedBattleDays.includes(day), `C4 Day ${day} 今日战斗提醒错误`);
+  }
+  for (const day of [97, 150, 5000]) {
+    ctx.state.day = day;
+    assert.ok(ctx.getStepTrackReminders('encounter').some(reminder => reminder.title === '今日战斗'));
   }
   ctx.currentCycleConfig = () => ({id: 'c2'});
   ctx.state.day = 2;
   assert.ok(!ctx.getStepTrackReminders('encounter').some(reminder => reminder.title === '今日战斗'));
 });
 
-test('nextDay 走到 Day 96 后继续往后推，没有上限', () => {
+test('nextDay 穿过原末尾并走到 Day 200 后继续往后推，没有上限', () => {
   const ctx = setup();
-  ctx.state.day = 17;
-  ctx.nextDay();
-  assert.equal(ctx.state.day, 18, '时间表内仍然跟着下一行走');
-  ctx.state.day = 96;
+  for (const day of [17, 96, 199]) {
+    ctx.state.day = day;
+    ctx.nextDay();
+    assert.equal(ctx.state.day, day + 1, `Day ${day} 应推进到下一行`);
+  }
+  ctx.state.day = 200;
   ctx.rendered.length = 0;
   const days = [];
   for (let index = 0; index < 5; index += 1) {
     ctx.nextDay();
     days.push(ctx.state.day);
   }
-  assert.deepEqual(days, [97, 98, 99, 100, 101]);
+  assert.deepEqual(days, [201, 202, 203, 204, 205]);
   assert.equal(ctx.rendered.length, 5);
   assert.deepEqual(plain(ctx.rendered[0]), {focusCurrentDay: true});
 });
@@ -146,26 +174,25 @@ test('nextDay 走到 Day 96 后继续往后推，没有上限', () => {
 test('时间表之外的日子会在日期轨里补出当天一行', () => {
   const ctx = setup();
   const track = ctx.dateTrackData.c4;
-  ctx.state.day = 96;
-  assert.equal(ctx.trackEntriesForRender(track).length, 97);
-  assert.ok(!ctx.trackEntriesForRender(track).some(entry => entry.beyondTrack));
+  for (const day of [50, 96, 97, 199, 200]) {
+    ctx.state.day = day;
+    assert.equal(ctx.trackEntriesForRender(track).length, 201);
+    assert.ok(!ctx.trackEntriesForRender(track).some(entry => entry.beyondTrack));
+  }
 
-  ctx.state.day = 97;
+  ctx.state.day = 201;
   const extended = ctx.trackEntriesForRender(track);
-  assert.equal(extended.length, 98);
-  assert.deepEqual(plain(extended.at(-1)), {day: 97, beyondTrack: true});
+  assert.equal(extended.length, 202);
+  assert.deepEqual(plain(extended.at(-1)), {day: 201, beyondTrack: true});
   assert.equal(extended[0].day, 0, '原有的时间表行不能被改动');
 
   ctx.state.day = 5000;
-  assert.equal(ctx.trackEntriesForRender(track).length, 98, '补行只加当天一行，不铺满中间的日子');
-
-  ctx.state.day = 50;
-  assert.equal(ctx.trackEntriesForRender(track).length, 97, '时间表内的日子不补行');
+  assert.equal(ctx.trackEntriesForRender(track).length, 202, '补行只加当天一行，不铺满中间的日子');
 });
 
 test('补出来的当天行也带战斗标记，顶部 day 输入框接受任意数字', () => {
   const ctx = setup();
-  ctx.state.day = 97;
+  ctx.state.day = 201;
   const entry = ctx.trackEntriesForRender(ctx.dateTrackData.c4).at(-1);
   assert.ok(ctx.dateTrackIcons(entry, ctx.dateTrackData.c4).some(battleIcon));
   assert.ok(source.includes('state.day = normalizeCampaignDay(elements.dayInput.value, currentCycleConfig().id)'));
@@ -176,16 +203,23 @@ test('补出来的当天行也带战斗标记，顶部 day 输入框接受任意
   assert.equal(ctx.normalizeCampaignDay('T6/00', 'c1'), 'T6/00');
 });
 
-test('日期轨画出当天那一行：96 停在时间表末尾，97 之后补一行', () => {
-  const last = setupRender(96);
-  assert.equal(last.rows.length, 97);
+test('日期轨完整画出 0 至 200 天，201 之后补当天一行', () => {
+  const last = setupRender(200);
+  assert.equal(last.rows.length, 201);
+  for (let day = 97; day <= 200; day += 1) {
+    assert.ok(last.rows[day].innerHTML.includes('class="date-track-icon battle"'), `Day ${day} 缺少战斗标记`);
+    assert.ok(!last.rows[day].className.includes('beyond-track'));
+  }
+  for (let day = 0; day <= 96; day += 1) {
+    assert.equal(last.rows[day].innerHTML.includes('class="date-track-icon battle"'), printedBattleDays.includes(day), `C4 Day ${day} 渲染的战斗标记错误`);
+  }
   assert.ok(last.rows.at(-1).className.includes('date-track-item'));
   assert.ok(last.rows.at(-1).className.includes('current'));
   assert.ok(!last.rows.at(-1).className.includes('beyond-track'));
   assert.ok(last.rows.at(-1).innerHTML.includes('战斗'));
 
-  const beyond = setupRender(97);
-  assert.equal(beyond.rows.length, 98);
+  const beyond = setupRender(201);
+  assert.equal(beyond.rows.length, 202);
   assert.ok(beyond.rows.at(-1).className.includes('beyond-track'));
   assert.ok(beyond.rows.at(-1).className.includes('current'));
   assert.ok(beyond.rows.at(-1).innerHTML.includes('战斗'), '续推日也要有战斗标记');

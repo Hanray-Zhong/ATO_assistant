@@ -6,6 +6,7 @@
 // 3) 按钮本身照旧只做放回，牌数照旧写在按钮文字里；
 // 4) 「已选 N / M 张」放在折叠的卡库内容开头，不再显示在工具条上；
 // 5) 自动结算按钮仍然只出现在「本次探索结果」的牌上，不出现在暂时移出的牌上。
+// 6) 工具条的一键结算执行自动效果，不直接结束仍有待办的探索。
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -71,9 +72,30 @@ function createElement(tag) {
     children: [],
     listeners: {},
     attributes: {},
-    append(...nodes) { this.children.push(...nodes); },
-    prepend(...nodes) { this.children.unshift(...nodes); },
-    appendChild(node) { this.children.push(node); return node; },
+    // 这几个插入方法要像真 DOM 一样"搬移"节点：否则"把卡库内容在两个折叠区之间搬来搬去"
+    // 的代码在测试里会同时出现在两边，断言就失去意义了。
+    _detach(node) {
+      if (node && node.parentNode) {
+        const at = node.parentNode.children.indexOf(node);
+        if (at >= 0) node.parentNode.children.splice(at, 1);
+      }
+    },
+    append(...nodes) {
+      nodes.forEach((node) => this.appendChild(node));
+    },
+    prepend(...nodes) {
+      nodes.reverse().forEach((node) => {
+        this._detach(node);
+        node.parentNode = this;
+        this.children.unshift(node);
+      });
+    },
+    appendChild(node) {
+      this._detach(node);
+      node.parentNode = this;
+      this.children.push(node);
+      return node;
+    },
     addEventListener(type, handler) { (this.listeners[type] ||= []).push(handler); },
     setAttribute(name, value) { this.attributes[name] = String(value); },
     getBoundingClientRect() { return { left: 10, right: 120, top: 40, bottom: 70, width: 110, height: 30 }; },
@@ -93,12 +115,14 @@ function collectClass(node, className) {
 }
 
 const settleCalls = [];
-const searcher = { library: [], selected: [], drawState: null, specialRule: null };
+const toolbarCalls = [];
+const searcher = { library: [], selected: [], drawState: null, specialRule: null, settlePrepared: false };
 
 const context = vm.createContext({
   console,
   document: { createElement },
   window: {},
+  state: { exploration: { lastSettlementByCycle: {} } },
   escapeHtml: (value) => String(value),
   currentCycleConfig: () => ({ id: "c1" }),
   defaultExplorationSelections: { c1: [] },
@@ -112,6 +136,10 @@ const context = vm.createContext({
   applyExplorationSelection() {},
   restoreDefaultExplorationSelection() {},
   createExplorationFactionStatus: () => createElement("div"),
+  // 「一键结算 → 结算完毕」两段式：准备好时主控台会把按钮文本换掉。
+  get explorationSettlePrepared() { return searcher.settlePrepared === true; },
+  completeExplorationDraw() { toolbarCalls.push('complete'); },
+  pendingExplorationEffects: () => ['Trade Post：请选择首次获得的资源'],
   createExplorationDestructionTools: () => null,
   createHiddenExplorationMenu: () => createElement("details"),
   createExplorationSettleBlock: (entry) => {
@@ -123,8 +151,10 @@ const context = vm.createContext({
   getExplorationCardImageStyle: () => "background-image:url(card.png)",
   getExplorationCornerNumber: () => "",
   getExplorationCardTag: () => ({ removal: "remove", draw: "single" }),
-  drawExplorationCard() {},
-  endExplorationDraw() {},
+  drawExplorationCard() { toolbarCalls.push('draw'); },
+  settleExplorationDraw() { toolbarCalls.push('settle'); },
+  mutateExplorationRecord() {},
+  endExplorationDraw() { toolbarCalls.push('end'); },
   returnTemporaryExplorationCards() {},
 });
 vm.runInContext(extractFunction(source, "createExplorationTools"), context);
@@ -191,11 +221,82 @@ assert.equal(collectClass(builder, "exploration-count")[0], counts[0],
 assert.equal(builder.children[1].children[0], counts[0],
   "已选张数要位于卡库内容开头");
 
+// 4b) 「暂时移出牌堆」与「选择探索卡库」并排两栏，且同时只会打开一个。
+const has = (node, child) => descendants(node).includes(child);
+const paneRow = collectClass(wrapper, "exploration-removed-piles")[0];
+const pilePane = collectClass(wrapper, "exploration-removed-pile")[0];
+assert.ok(paneRow && pilePane, "两个折叠区都要挂在并排的包裹层里");
+assert.equal(paneRow.children.length, 2, "包裹层里正好是两个折叠区");
+assert.equal(paneRow.children[0], pilePane);
+assert.equal(paneRow.children[1], builder);
+builder.open = true;
+builder.listeners.toggle[0]();
+assert.equal(pilePane.open, false, "打开卡库要收起暂时移出牌堆");
+assert.ok(!has(pilePane, counts[0]), "卡库收起后内容搬回自己的折叠区");
+builder.open = false;
+builder.listeners.toggle[0]();
+pilePane.open = true;
+pilePane.listeners.toggle[0]();
+assert.equal(builder.open, false, "打开暂时移出牌堆要收起卡库");
+assert.ok(has(pilePane, counts[0]), "卡库内容跟着搬到打开的那个折叠区里");
+pilePane.open = false;
+pilePane.listeners.toggle[0]();
+assert.ok(has(builder, counts[0]), "收起后卡库内容搬回卡库折叠区");
+assert.ok(!has(pilePane, counts[0]));
+
 // 5) 自动结算只挂在本次探索结果上。
 assert.deepEqual(settleCalls, ["6404"], "只有本次探索结果的牌才生成结算区块");
 const activeGrid = collectClass(wrapper, "exploration-active-grid")[0];
 assert.ok(activeGrid, "本次探索结果的网格没了");
 assert.equal(collectClass(activeGrid, "exploration-settle").length, 1, "本次探索结果的牌要带结算区块");
 assert.equal(collectClass(pileSection, "exploration-settle").length, 0, "暂时移出的牌不该带结算区块");
+
+// 6) 一键结算入口与手动结束入口保持独立，当前有牌时不重新抽牌。
+const settleButton = descendants(toolbar).find((node) => node.tagName === "BUTTON" && node.textContent === "一键结算");
+assert.ok(settleButton, "工具条应将结算完毕改为一键结算");
+assert.equal(settleButton.disabled, false);
+assert.ok(!descendants(toolbar).some((node) => node.textContent === "结算完毕"));
+settleButton.listeners.click[0]();
+assert.deepEqual(toolbarCalls, ['settle'], "一键结算应调用自动结算，不能直接结束探索");
+
+// 6b) 自动结算后仍有手工项：按钮变成「结算完毕」，再点一次走 completeExplorationDraw。
+searcher.settlePrepared = true;
+const finishTools = context.createExplorationTools();
+const finishButton = descendants(finishTools).find((node) => node.tagName === "BUTTON" && node.textContent === "结算完毕");
+assert.ok(finishButton, "自动结算后仍有待办时，按钮文本要变成「结算完毕」");
+finishButton.listeners.click[0]();
+assert.deepEqual(toolbarCalls, ['settle', 'complete'], "「结算完毕」应结束本轮探索而不是再跑一次自动结算");
+searcher.settlePrepared = false;
+
+searcher.drawState.activePiles = [[], []];
+const idleTools = context.createExplorationTools();
+const drawButton = descendants(idleTools).find((node) => node.tagName === "BUTTON" && node.textContent === "抽探索卡");
+assert.ok(drawButton, "没有待结算卡时仍显示抽探索卡");
+drawButton.listeners.click[0]();
+assert.deepEqual(toolbarCalls, ['settle', 'complete', 'draw']);
+assert.ok(!descendants(idleTools).some((node) => node.textContent === "一键结算"));
+
+searcher.drawState.activePiles = [[{ id: '6404', name: 'Trade Post', day: 12 }], []];
+context.settleExplorationDraw.busy = true;
+const busyTools = context.createExplorationTools();
+assert.equal(descendants(busyTools).find((node) => node.textContent === "一键结算").disabled, true,
+  "结算期间应禁用一键结算，防止重复写入");
+context.settleExplorationDraw.busy = false;
+context.state.exploration.lastSettlementByCycle.c1 = {
+  completed: ['Trade Post：船材 +2'], pending: ['a stale pending item'],
+};
+const reportedTools = context.createExplorationTools();
+const report = collectClass(reportedTools, 'exploration-batch-report')[0];
+assert.ok(report, '结算后应显示自动处理结果和剩余待办');
+assert.equal(report.attributes['aria-live'], 'polite');
+// 「查看自动结算明细」已整块删除：报告里只有概括行 + 待手动处理的清单，
+// 逐条自动处理结果（'Trade Post：船材 +2'）不再渲染。
+assert.match(collectClass(report, 'exploration-batch-result')[0].textContent, /自动处理 1 项.*还有 1 项/);
+assert.equal(collectClass(report, 'exploration-settle-details').length, 0, '结算明细折叠区应该已经删掉');
+assert.ok(descendants(report).some((node) => node.textContent === 'Trade Post：请选择首次获得的资源'),
+  '当前待办应从当前卡牌重新读取');
+assert.ok(!descendants(report).some((node) => node.textContent === 'a stale pending item'));
+assert.ok(!descendants(report).some((node) => node.textContent === 'Trade Post：船材 +2'),
+  '自动处理明细不再逐条列出');
 
 console.log("exploration drawn card tests passed");

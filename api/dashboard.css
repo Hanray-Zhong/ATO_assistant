@@ -427,9 +427,15 @@ button {
   background: var(--accent-soft);
 }
 
-.app :is(.step-track-reminder, .exploration-tools, .exploration-removed-pile,
-  .exploration-hidden, .exploration-destruction, .exploration-builder,
-  .exploration-faction-chip, .exploration-destruction-card, .survey-constants,
+/* 注意：.exploration-removed-pile / .exploration-hidden / .exploration-builder 故意不在这份
+   扁平化名单里。它们是探索区里的折叠入口，外观由 index.html 里那组统一的折叠卡片样式负责
+   （同样的边框、圆角、底色与自定义三角）。这里如果一并清成透明无边框，就会盖掉那组规则
+   —— 本表随 index.html 之后加载，且 `.app` 前缀的特异性更高。
+   .exploration-faction-chip 同理移出：派系标签靠"细环 + 当前项加深"区分，环与底色都由
+   下面那两条规则给。 */
+.app :is(.step-track-reminder, .exploration-tools,
+  .exploration-destruction,
+  .exploration-destruction-card, .survey-constants,
   .survey-constant-card, .survey-hub-summary, .event-item, .second-screen-card,
   .empty, .field-note, .session-account) {
   border: 0;
@@ -438,7 +444,25 @@ button {
   box-shadow: none;
 }
 
-.app :is(.exploration-tools, .exploration-hidden, .exploration-destruction) {
+/* 派系标签：方形细环、无底色；只有 AG 当前格所在的那个把环加深（其余两个只有
+   一圈浅环）。 */
+.app .exploration-faction-chip {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.app .exploration-faction-chip.current {
+  border: 1px solid var(--accent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  font-weight: 900;
+}
+
+.app :is(.exploration-tools, .exploration-destruction) {
   border-top: 1px solid var(--line);
   padding: 10px 0 0;
 }
@@ -493,30 +517,38 @@ button {
   padding: 8px 0;
 }
 
+/* 提醒条统一按「结构科技」那条的规格：左侧 4px 竖条 + 一圈同色系的包边。
+   （原来只有科技类带包边，其余是 2px 左条、四面没有边框，看着深浅不一。） */
 .app .step-track-reminder {
-  border-left: 2px solid var(--gold);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--gold);
   padding: 8px 12px;
 }
 
 .app .step-track-reminder.important {
-  border-left: 2px solid var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+  border-left-color: var(--danger);
   background: #f6ebe3;
 }
 
 .app .step-track-reminder.tech {
-  border-left: 2px solid var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-left-color: var(--accent);
 }
 
 .app .step-track-reminder.terrain {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
   background: var(--accent-soft);
 }
 
 .app .step-track-reminder.calamity {
+  border: 1px solid #dcae9f;
   border-left: 4px solid #a52206;
   background: #f8ded8;
 }
 
 .app .step-track-reminder.story-progress {
+  border: 1px solid #a6cbb6;
   border-left: 4px solid #216849;
   background: #dcefe3;
 }
@@ -531,21 +563,64 @@ button {
 }
 
 .app .step-track-reminder.battle-tech {
-  border: 1px solid #a8b9dc;
+  border: 1px solid #8fa5cf;
   border-left: 4px solid #355a9a;
   background: #e0e9fa;
 }
 
 .app .step-track-reminder.structure-tech {
-  border: 1px solid #98c5b2;
+  border: 1px solid #7fb69f;
   border-left: 4px solid #216849;
   background: #dcefe3;
+}
+
+/* 整条提醒的配色：跟着标签的类型走（R&R 紫、板块砖橙、回忆突破紫蓝、谈判深青、
+   进展赭金），而不是只有标签本身变色。 */
+.app .step-track-reminder.rr {
+  border: 1px solid #b9a9d6;
+  border-left: 4px solid #6c4fa1;
+  background: #eee8f8;
+}
+
+.app .step-track-reminder.tile {
+  border: 1px solid #dcae86;
+  border-left: 4px solid #a2551d;
+  background: #f8e9dc;
+}
+
+.app .step-track-reminder.milestone {
+  border: 1px solid #a8b1dd;
+  border-left: 4px solid #3f55a5;
+  background: #e6e9f8;
+}
+
+.app .step-track-reminder.negotiation {
+  border: 1px solid #9dc4bd;
+  border-left: 4px solid #16675b;
+  background: #e0f0ec;
+}
+
+.app .step-track-reminder.advance {
+  border: 1px solid #d8c48f;
+  border-left: 4px solid #8a6a12;
+  background: #f7f0dc;
+}
+
+/* 整条有底色的提醒，说明文字改用正文色，别在彩底上发灰。 */
+.app .step-track-reminder:is(.rr, .tile, .milestone, .negotiation, .advance) .step-track-desc {
+  color: var(--ink);
 }
 
 .app .step-track-reminder:is(.battle-tech, .structure-tech) .step-track-desc {
   color: var(--ink);
 }
 
+/* 提醒标签 / 日历图标共用一套实底白字配色。原先只有结构科技（绿）、战斗科技（蓝）、
+   战斗（淡底红字）三种，且战斗与灾祸同为战斗事件却一个淡底一个红底、R&R 与板块又和
+   「谈判」撞色。现在按类型一色一种，并给 R&R / 板块 / 谈判 / 进展 / 回忆突破各自
+   单独的变体类（见 index.html 里的 tag.className）。
+   顺序要求：两个"基准"类（battle-tech / structure-tech）必须排在各个变体前面 ——
+   这些选择器特异性完全相同，后出现的赢。 */
 .app :is(.date-track-icon, .step-track-tag).battle-tech {
   background: #355a9a;
   color: #fff;
@@ -553,6 +628,41 @@ button {
 
 .app :is(.date-track-icon, .step-track-tag).structure-tech {
   background: #216849;
+  color: #fff;
+}
+
+.app :is(.date-track-icon, .step-track-tag).rr {
+  background: #6c4fa1;
+  color: #fff;
+}
+
+.app :is(.date-track-icon, .step-track-tag).tile {
+  background: #a2551d;
+  color: #fff;
+}
+
+.app :is(.date-track-icon, .step-track-tag).negotiation {
+  background: #16675b;
+  color: #fff;
+}
+
+.app :is(.date-track-icon, .step-track-tag).advance {
+  background: #8a6a12;
+  color: #fff;
+}
+
+.app :is(.date-track-icon, .step-track-tag).milestone {
+  background: #3f55a5;
+  color: #fff;
+}
+
+.app :is(.date-track-icon, .step-track-tag).battle {
+  background: #9d332c;
+  color: #fff;
+}
+
+.app :is(.date-track-icon, .step-track-tag).important {
+  background: var(--danger);
   color: #fff;
 }
 
@@ -619,18 +729,9 @@ button {
   padding: 14px 0 0;
 }
 
-.app .exploration-builder {
-  border-top: 1px solid var(--line);
-}
-
-.exploration-builder summary {
-  padding: 10px 0;
-  font-weight: 600;
-}
-
-.exploration-builder-body {
-  padding-inline: 0;
-}
+/* 「选择探索卡库」的折叠条与展开后内边距由 index.html 的统一折叠样式决定（各折叠区
+   一致）。这里原先还把 .exploration-builder-body 的横向内边距清成 0，会让卡库比其它
+   折叠区少缩进 14px，已随这次统一一并去掉。 */
 
 .app .exploration-library label {
   border: 0;
@@ -640,9 +741,8 @@ button {
   background: transparent;
 }
 
-.app .exploration-faction-chip {
-  padding: 2px 0;
-}
+/* 原先这里把派系标签的内边距压成 `2px 0`；底色一加上去就显得贴边，已去掉，
+   让 index.html 的 `padding: 4px 8px` 生效。 */
 
 .app .exploration-destruction-card {
   padding: 4px 0;

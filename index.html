@@ -711,6 +711,9 @@
       margin-left: auto;
     }
 
+    /* 提醒标签的配色统一放在 api/dashboard.css 的 `.app :is(.date-track-icon, .step-track-tag)`
+       规则里 —— 那里是按「日期图标 + 提醒标签共用一套色」组织的，且能压过同文件里的通用
+       规则；这里只保留标签的排版。 */
     .step-track-tag {
       min-height: 20px;
       display: inline-flex;
@@ -721,21 +724,7 @@
       color: var(--muted);
       font-size: 11px;
       font-weight: 900;
-    }
-
-    .step-track-tag.battle {
-      background: #f4ece8;
-      color: var(--danger);
-    }
-
-    .step-track-tag.structure-tech {
-      background: #e8f4ef;
-      color: var(--accent);
-    }
-
-    .step-track-tag.battle-tech {
-      background: #eef1f7;
-      color: #44536f;
+      white-space: nowrap;
     }
 
     .step-track-desc {
@@ -800,21 +789,17 @@
       font-weight: 800;
     }
 
+    /* 派系标签（方形细环、无底色）的环与当前项样式在 api/dashboard.css 的
+       `.app .exploration-faction-chip` / `.current` 里；这里只留排版尺寸。 */
     .exploration-faction-chip {
       display: inline-flex;
       align-items: center;
       min-height: 24px;
       padding: 4px 8px;
-      border: 1px solid rgba(22, 103, 91, 0.24);
-      border-radius: 6px;
-      background: #ffffff;
+      border-radius: 0;
+      background: transparent;
       color: var(--ink);
       line-height: 1.2;
-    }
-
-    .exploration-faction-chip.muted {
-      color: #66756f;
-      font-weight: 700;
     }
 
     .exploration-count {
@@ -843,37 +828,136 @@
       gap: 8px;
     }
 
-    .exploration-removed-pile {
-      display: grid;
-      gap: 8px;
-      min-width: 0;
-      border: 1px solid var(--line);
-      border-radius: 7px;
-      padding: 9px;
-      background: #fff;
+    /* 探索区的折叠入口（暂时移出牌堆 / 隐藏探索卡 / 选择探索卡库）统一成同一套外观：
+       一样的字号、字重、行高、内边距、分隔线与自定义三角，不再混用浏览器默认 <details>，
+       也不再各自往容器上加边框/底色（api/dashboard.css 会把这些容器清成透明无边框，
+       本页就顺着这个扁平方向走，只把标题行做成一致的"折叠条"）。
+       连 #appShell 一起限定，是为了压过 api/dashboard.css 里 `.app :is(...)` 的同名规则
+       —— 本页 <style> 在它之前加载，光靠标签类名赢不了。 */
+    #appShell :is(.exploration-removed-pile, .exploration-hidden, .exploration-builder, .exploration-destruction),
+    .exploration-removed-pile,
+    .exploration-hidden,
+    .exploration-builder,
+    .exploration-destruction {
+      border: 0;
+      border-top: 1px solid var(--line);
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      overflow: visible;
     }
 
-    .exploration-removed-piles {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 9px;
-    }
-
-    .exploration-pile-head {
+    #appShell :is(.exploration-removed-pile, .exploration-hidden, .exploration-builder, .exploration-destruction) > summary,
+    .exploration-removed-pile > summary,
+    .exploration-hidden > summary,
+    .exploration-builder > summary,
+    .exploration-destruction > summary {
       display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
       align-items: center;
-      justify-content: space-between;
+      gap: 8px;
+      min-height: 34px;
+      padding: 10px 0;
       color: var(--ink);
       font-size: 13px;
       font-weight: 900;
+      line-height: 1.35;
+      cursor: pointer;
+      list-style: none;
     }
 
-    .exploration-removed-pile summary {
-      display: list-item;
-      cursor: pointer;
-      list-style-position: inside;
+    .exploration-removed-pile > summary::-webkit-details-marker,
+    .exploration-hidden > summary::-webkit-details-marker,
+    .exploration-builder > summary::-webkit-details-marker,
+    .exploration-destruction > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    /* 自绘三角：收起时朝右、展开时朝下，几个折叠区完全一致。 */
+    .exploration-removed-pile > summary::before,
+    .exploration-hidden > summary::before,
+    .exploration-builder > summary::before,
+    .exploration-destruction > summary::before {
+      content: "";
+      flex: 0 0 auto;
+      width: 0;
+      height: 0;
+      border-top: 4.5px solid transparent;
+      border-bottom: 4.5px solid transparent;
+      border-left: 6px solid var(--muted);
+      transition: transform 120ms ease;
+    }
+
+    .exploration-removed-pile[open] > summary::before,
+    .exploration-hidden[open] > summary::before,
+    .exploration-builder[open] > summary::before,
+    .exploration-destruction[open] > summary::before {
+      transform: rotate(90deg);
+    }
+
+    .exploration-removed-pile > summary:hover,
+    .exploration-hidden > summary:hover,
+    .exploration-builder > summary:hover,
+    .exploration-destruction > summary:hover {
+      color: var(--accent-strong);
+    }
+
+    .exploration-removed-pile > summary:focus-visible,
+    .exploration-hidden > summary:focus-visible,
+    .exploration-builder > summary:focus-visible,
+    .exploration-destruction > summary:focus-visible {
+      outline: 2px solid rgba(31, 122, 79, 0.45);
+      outline-offset: 2px;
+    }
+
+    /* 「暂时移出牌堆」与「选择探索卡库」横向并排两栏（包裹层用 display: contents 让两个
+       折叠区直接成为网格项）。同时只允许打开一个：打开时跨两列占满整行，另一个折叠回
+       标题行、落到下一行左侧；两个都收起时就是并排的两条标题。 */
+    .exploration-removed-piles {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px;
+      align-items: start;
+    }
+
+    .exploration-removed-pile,
+    .exploration-builder {
+      grid-column: auto;
+      min-width: 0;
+      align-self: start;
+    }
+
+    .exploration-removed-pile[open],
+    .exploration-builder[open] {
+      grid-column: 1 / -1;
+    }
+
+    /* dashboard.css 给卡库内容留过 14px 缩进（原来它单独占一行）。并排/展开时内容直接
+       从栏边开始，和其它折叠区一致。 */
+    .exploration-builder-body {
+      padding: 0 0 11px;
+    }
+
+    /* 内容区贴着同一条左边线：折叠区展开后文字都从 14px 开始，不会左右跳。 */
+    #appShell :is(.exploration-removed-pile, .exploration-builder) > :is(.exploration-drawn-grid, ul),
+    .exploration-removed-pile > .exploration-drawn-grid {
+      margin: 0;
+      padding: 0 0 11px 14px;
+    }
+
+    .exploration-removed-pile {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    /* 「本次自动处理 N 项。…」的概括行：结构上与下面的待办清单平级，所以不再额外缩进。 */
+    .exploration-batch-result {
+      padding: 0 0 11px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
     }
 
     .exploration-drawn-grid {
@@ -884,14 +968,51 @@
     }
 
     .exploration-active-grid {
-      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
       gap: 12px;
+    }
+
+    .exploration-active-grid > .exploration-drawn-card {
+      width: min(100%, 190px);
+    }
+
+    .exploration-active-grid > .exploration-drawn-card.is-landscape {
+      width: min(100%, 392px);
+    }
+
+    .exploration-active-grid .exploration-drawn-face.is-landscape {
+      position: relative;
+      aspect-ratio: 740 / 470;
+    }
+
+    .exploration-active-grid .exploration-drawn-image.is-rotated {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: calc(100% * 470 / 740);
+      height: calc(100% * 740 / 470);
+      transform: translate(-50%, -50%) rotate(90deg);
+      background-repeat: no-repeat;
     }
 
     .exploration-drawn-card {
       display: grid;
       gap: 5px;
       min-width: 0;
+    }
+
+    .exploration-drawn-card > *,
+    .exploration-settle-actions {
+      min-width: 0;
+    }
+
+    .exploration-settle select {
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
     }
 
     .exploration-drawn-face {
@@ -905,10 +1026,21 @@
       box-shadow: 0 6px 14px rgba(28, 38, 34, 0.12);
     }
 
-    .exploration-destruction {
-      border: 1px solid rgba(157, 51, 44, 0.2);
-      border-radius: 7px;
-      background: #fff8f5;
+    /* 破坏卡组的外形和「隐藏探索卡」走同一套（见上面那组折叠条规则）；这里不再单独
+       描红边、铺红底，只靠标题里的红字和破坏卡的红色小标区分。 */
+    .exploration-destruction-head {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .exploration-destruction-badge {
+      margin-left: 8px;
+      border: 1px solid rgba(157, 51, 44, 0.4);
+      border-radius: 999px;
+      padding: 1px 7px;
+      color: var(--danger);
+      font-size: 11px;
+      font-weight: 900;
     }
 
     .exploration-settle {
@@ -949,10 +1081,16 @@
       cursor: pointer;
     }
 
-    .exploration-settle-actions button.secondary {
+    .app .exploration-settle-actions button.secondary {
       border-color: rgba(30, 38, 35, 0.25);
       background: #f2f5f3;
       color: #46574f;
+    }
+
+    .exploration-settle-actions button.exploration-settle-choice {
+      border-color: rgba(138, 90, 18, 0.35);
+      background: #fff8e8;
+      color: #8a5a12;
     }
 
     .exploration-settle-actions button:disabled {
@@ -969,6 +1107,29 @@
       line-height: 1.35;
     }
 
+    .exploration-settle-manual > li { margin-top: 6px; }
+    .exploration-effect-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px;
+      margin-top: 3px;
+    }
+    .exploration-effect-controls button,
+    .exploration-effect-apply,
+    .exploration-effect-controls select {
+      max-width: 100%;
+      border: 1px solid var(--line);
+      padding: 3px 7px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .exploration-effect-controls button:disabled { opacity: .55; cursor: default; }
+    .exploration-option-tools, .exploration-delay-tools { margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--line); }
+    .exploration-effect-controls input[type="number"] { max-width: 70px; padding: 3px; font: inherit; }
+    .exploration-delay-tools details { flex-basis: 100%; }
+    .exploration-delay-tools details label { display: flex; align-items: center; gap: 5px; margin: 3px 0; }
+
     .exploration-destruction summary {
       cursor: pointer;
       padding: 9px 10px;
@@ -977,70 +1138,19 @@
       font-weight: 900;
     }
 
-    .exploration-destruction-body {
-      display: grid;
-      gap: 8px;
-      padding: 0 9px 9px;
-    }
-
-    .exploration-destruction-head {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .exploration-destruction-title {
-      color: var(--ink);
-      font-size: 13px;
-      font-weight: 900;
-    }
-
-    .exploration-destruction-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-
-    .exploration-destruction-card {
-      display: inline-flex;
-      min-height: 28px;
-      align-items: center;
-      gap: 6px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 3px 6px;
-      background: #fff;
-      color: var(--ink);
-      font-size: 12px;
-      font-weight: 800;
-    }
-
+    /* 破坏卡组沿用「隐藏探索卡」那套（.exploration-hidden* 的折叠条 / body / 卡片行），
+       这里只留它自己的两处：说明行下面那个按钮，以及"破坏卡 · 探索中"小标。 */
     .exploration-destruction-card button {
       min-height: 22px;
       padding: 0 7px;
       font-size: 11px;
     }
 
-    .exploration-builder {
-      border: 1px solid var(--line);
-      border-radius: 7px;
-      background: #fff;
-    }
-
-    .exploration-builder summary {
-      cursor: pointer;
-      padding: 9px 10px;
-      color: var(--ink);
-      font-size: 13px;
-      font-weight: 900;
-    }
-
+    /* 与其它折叠区一样从 14px 开始（折叠样式统一在文件上方）。 */
     .exploration-builder-body {
       display: grid;
       gap: 9px;
-      padding: 0 10px 10px;
+      padding: 0 0 11px 14px;
     }
 
     .exploration-builder-actions {
@@ -1049,28 +1159,38 @@
       gap: 7px;
     }
 
+    /* 卡库的牌面尺寸与「暂时移出牌堆」（.exploration-drawn-grid：118px 列 + 8px 间距）
+       逐像素对齐。关键是**两边的列轨道完全相同**：卡库每张外面本来套着带边框和内边距的
+       卡片盒（14+2px），同样的列宽算出来的牌面就会小一圈，而且两边的列数会随宽度错开
+       —— 实测最差差过 18px。所以列定义、间距、以及 label 的内边距全部按牌堆那边来，
+       卡片盒的边框/底色改画在牌面自己身上（视觉不变，宽度不再被吃掉）。 */
     .exploration-library {
       max-height: 620px;
       overflow: auto;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 10px;
+      grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+      gap: 8px;
       align-items: start;
     }
 
     .exploration-library label {
       display: grid;
       grid-template-columns: auto minmax(0, 1fr);
-      gap: 7px;
+      gap: 6px;
       align-items: start;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 8px;
-      background: #fbfcfa;
+      border: 0;
+      padding: 0;
+      background: transparent;
       color: var(--ink);
       font-size: 12px;
       font-weight: 800;
       line-height: 1.25;
+      cursor: pointer;
+    }
+
+    .exploration-library label > span {
+      align-self: center;
+      overflow-wrap: anywhere;
     }
 
     .exploration-library-preview {
@@ -1091,16 +1211,12 @@
       accent-color: var(--accent);
     }
 
-    .exploration-hidden {
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #fbfcfa;
-    }
-
+    /* 折叠条本身的外观（边框/三角/内边距）由上面那组统一的 .exploration-* 折叠样式负责，
+       这里只管展开后的排版：内容与其它折叠区一样从 14px 开始。 */
     .exploration-hidden-body {
       display: grid;
       gap: 9px;
-      padding: 0 10px 10px;
+      padding: 0 0 10px 14px;
     }
 
     .exploration-hidden-card {
@@ -2209,7 +2325,7 @@
       }
     }
   </style>
-  <link rel="stylesheet" href="./api/dashboard.css?v=20261009-nav-icon-urlfix">
+  <link rel="stylesheet" href="./api/dashboard.css?v=20261012-exploration-fold1">
   <link rel="stylesheet" href="./assets/theme.css?v=20261007-misc-settings11">
   <script src="./story/data/english-source-data.js?v=20261011-english4"></script>
   <script src="./assets/theme.js?v=20261007-page-navigation1" defer></script>
@@ -2483,8 +2599,13 @@
   <script src="./assets/story-doom-card-data.js?v=20261002-cache1"></script>
   <script src="./assets/exploration-card-tags.js?v=20261002-cache1"></script>
   <script src="./assets/exploration-card-rules.js?v=20261002-cache1"></script>
-  <script src="./assets/exploration-card-resource-rules.js?v=20260927-settlement-rules1"></script>
-  <script src="./assets/exploration-card-resources.js?v=20260927-settlement-rules1"></script>
+  <script src="./assets/exploration-card-resource-rules.js?v=20261013-automation5"></script>
+  <script src="./assets/exploration-card-effects.js?v=20261013-next-effects12"></script>
+  <script src="./assets/exploration-card-conditions.js?v=20261013-four-conditions13"></script>
+  <script src="./assets/exploration-card-options.js?v=20261013-next-options12"></script>
+  <script src="./assets/exploration-card-choices.js?v=20261013-next-choices12"></script>
+  <script src="./assets/exploration-card-delays.js?v=20261013-automation5"></script>
+  <script src="./assets/exploration-card-resources.js?v=20261013-automation5"></script>
   <script src="./map/map-tile-tags.js?v=20260730-c4-oasis-tag"></script>
   <script src="./map/map-data.js?v=20260730-cycle-labels"></script>
   <script src="./map/nemesis-path.js?v=20260924-shared"></script>
@@ -2593,7 +2714,7 @@
         id: "explore",
         title: "探索",
         kind: "总是执行",
-        desc: "触发探索图标，**抽取并结算探索卡**；如有需要，移动仇敌并执行扎根。",
+        desc: "触发探索图标，**抽取并结算探索卡**；大部分探索卡可自动结算，注意仇敌需手动结算。",
       },
       {
         id: "survey",
@@ -2718,11 +2839,11 @@
       },
       c4: {
         label: "Cycle IV 航行时间表",
-        entries: Array.from({ length: 97 }, (_, index) => ({ day: index })),
-        // C4 每天都有战斗，所以不再逐日列 battleDays（官方时间表原本是
-        // 1/7/13/…/79 加上收尾的 84/88/91/93/94/95/96）。日期轨超出
-        // 最后一行的续推日同样算战斗日，见 isTrackBattleDay()。
-        battleEveryDay: true,
+        entries: Array.from({ length: 201 }, (_, index) => ({ day: index })),
+        // 按循环 IV 记录表：93 天及以前只在列出的日期战斗；94 天起每天战斗。
+        // 日期轨扩展至 200 天；新增日期与 200 天之后的续推日均为每日战斗。
+        battleDays: [1, 7, 13, 19, 25, 31, 37, 43, 49, 55, 61, 67, 73, 79, 84, 88, 91, 93],
+        battleEveryDayFrom: 94,
         events: {
           6: "Broken Circle Special Event",
           18: "Acclimation 1",
@@ -4643,6 +4764,9 @@
         destructionCardIdsByCycle: isPlainObject(value?.destructionCardIdsByCycle) ? value.destructionCardIdsByCycle : {},
         acclimationsByCycle: isPlainObject(value?.acclimationsByCycle) ? value.acclimationsByCycle : {},
         settledByCycle: isPlainObject(value?.settledByCycle) ? value.settledByCycle : {},
+        effectStateByCycle: isPlainObject(value?.effectStateByCycle) ? value.effectStateByCycle : {},
+        lastSettlementByCycle: isPlainObject(value?.lastSettlementByCycle) ? value.lastSettlementByCycle : {},
+        trackReceiptsByCycle: isPlainObject(value?.trackReceiptsByCycle) ? value.trackReceiptsByCycle : {},
       };
     }
 
@@ -5210,10 +5334,19 @@
       }
     }
 
-    function endExplorationDraw() {
+    // options.skipPendingConfirm：调用方刚刚已经把「还有 N 项未处理」的事告诉过玩家
+    // （例如点「结算完毕」那一下），就不要再弹一次确认。
+    function endExplorationDraw(options = {}) {
+      if (mutateExplorationRecord.busy) {
+        window.alert("正在写入探索效果，请稍候再结束探索。");
+        return;
+      }
       const drawState = ensureExplorationDrawState();
       const drawn = drawState.activePiles.flat();
       if (!drawn.length) return;
+      const pending = pendingExplorationEffects();
+      if (options.skipPendingConfirm !== true && pending.length
+        && !window.confirm(`还有 ${pending.length} 项效果未处理：\n${pending.slice(0, 8).join("\n")}\n\n确认已在游戏中处理，继续结束探索？`)) return;
       const result = explorationRules().settlePiles(drawState.activePiles);
       drawState.temporaryRemoved.push(...result.temporaryRemoved);
       if (result.permanentIds.length) {
@@ -5227,8 +5360,11 @@
       drawState.history = [];
       drawState.discardPile = [];
       drawState.current = null;
+      // 本轮结束，「结算完毕」那一步的临时状态跟着复位。
+      explorationSettlePrepared = false;
       saveState();
       renderFlow();
+      void processExplorationDelays("explore-end");
     }
 
     function returnTemporaryExplorationCards() {
@@ -5344,66 +5480,119 @@
       const summary = document.createElement("summary");
       summary.textContent = `破坏卡组（${destructionPileIds.length}） · 探索中 ${selectedDestructionIds.length}`;
       const body = document.createElement("div");
-      body.className = "exploration-destruction-body";
+      body.className = "exploration-hidden-body";
+      let populated = false;
 
-      const head = document.createElement("div");
-      head.className = "exploration-destruction-head";
-      const title = document.createElement("div");
-      title.className = "exploration-destruction-title";
-      title.textContent = `破坏卡组（${destructionPileIds.length}）`;
-      const addButton = document.createElement("button");
-      addButton.type = "button";
-      addButton.className = "danger step-action-button";
-      addButton.textContent = "随机加入破坏卡";
-      addButton.disabled = destructionPileIds.length === 0;
-      addButton.addEventListener("click", addRandomDestructionCard);
-      head.append(title, addButton);
+      // 和「隐藏探索卡」完全同一套：折叠条 + 剧透/说明 + 每张卡一行，卡图点「展开卡图」
+      // 才去拉。区别只在按钮：隐藏卡是勾选后统一「应用选择」，破坏卡组是「随机加入」，
+      // 已经在探索牌组里的那张给一个「移回」。
+      summary.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (section.open) {
+          section.open = false;
+          section.querySelectorAll("details").forEach((preview) => { preview.open = false; });
+          return;
+        }
+        if (!window.confirm("破坏卡组会永远从探索牌组里移除这些卡。确定打开查看吗？")) return;
+        populate();
+        section.open = true;
+      });
 
-      const pileList = document.createElement("div");
-      pileList.className = "exploration-destruction-list";
-      if (destructionPileIds.length) {
+      function populate() {
+        if (populated) return;
+        populated = true;
+        // 破坏卡也画牌面：只写名字和黑底编号的话，这一块跟上面的卡库一比就像"没有卡图"。
+        // 用和卡库/隐藏探索卡一样的缩略图写法，不额外加载任何资源。
+        const destructionCard = (cardId) => {
+          const item = document.createElement("article");
+          item.className = "exploration-hidden-card";
+          const label = document.createElement("label");
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.value = cardId;
+          checkbox.checked = selectedDestructionIds.includes(cardId);
+          checkbox.disabled = true;
+          const name = document.createElement("span");
+          // 只写卡名：黑底编号本来就印在牌面上，这里再写一遍会在缩略图下面重复。
+          name.textContent = getExplorationCard(cardId)?.name || getExplorationCardLabel(cardId);
+          label.append(checkbox, name);
+          const inDeck = selectedDestructionIds.includes(cardId);
+          if (inDeck) {
+            // 小标放在名字旁边（不塞进名字里），避免"名字 + 子元素"这种混排。
+            const badge = document.createElement("span");
+            badge.className = "exploration-destruction-badge";
+            badge.textContent = "破坏卡 · 探索中";
+            label.appendChild(badge);
+          }
+
+          const preview = document.createElement("details");
+          const previewHeading = document.createElement("summary");
+          previewHeading.textContent = "展开卡图";
+          preview.appendChild(previewHeading);
+          preview.addEventListener("toggle", () => {
+            previewHeading.textContent = preview.open ? "收起卡图" : "展开卡图";
+            if (!preview.open || preview.querySelector('[role="img"]')) return;
+            const face = document.createElement("div");
+            face.className = "exploration-library-preview";
+            face.setAttribute("role", "img");
+            face.setAttribute("aria-label", getExplorationCardLabel(cardId));
+            face.style.cssText = getExplorationCardImageStyle(cardId);
+            preview.appendChild(face);
+          });
+          item.append(label, preview);
+          if (inDeck) {
+            const returnButton = document.createElement("button");
+            returnButton.type = "button";
+            returnButton.className = "secondary";
+            returnButton.textContent = "移回";
+            returnButton.addEventListener("click", () => returnDestructionCard(cardId));
+            item.appendChild(returnButton);
+          }
+          return item;
+        };
+
+        const hint = document.createElement("div");
+        hint.className = "exploration-summary";
+        hint.textContent = destructionPileIds.length || selectedDestructionIds.length
+          ? `破坏卡组里共 ${destructionPileIds.length} 张；已在探索牌组里的 ${selectedDestructionIds.length} 张标着「破坏卡 · 探索中」，可点「移回」。卡图需逐张展开。`
+          : "破坏卡组为空。";
+        body.appendChild(hint);
+
+        // 先列破坏卡组本身的牌，再补上"已在探索牌组里但已不在破坏卡组"的那些。
+        const listed = new Set();
         destructionPileIds.forEach((cardId) => {
-          const item = document.createElement("span");
-          item.className = "exploration-destruction-card";
-          item.textContent = getExplorationCardLabel(cardId);
-          pileList.appendChild(item);
+          if (listed.has(cardId)) return;
+          listed.add(cardId);
+          body.appendChild(destructionCard(cardId));
         });
-      } else {
-        const item = document.createElement("span");
-        item.className = "exploration-destruction-card";
-        item.textContent = "破坏卡组为空";
-        pileList.appendChild(item);
-      }
-
-      const selectedTitle = document.createElement("div");
-      selectedTitle.className = "exploration-destruction-title";
-      selectedTitle.textContent = `探索卡组中的破坏卡（${selectedDestructionIds.length}）`;
-
-      const selectedList = document.createElement("div");
-      selectedList.className = "exploration-destruction-list";
-      if (selectedDestructionIds.length) {
         selectedDestructionIds.forEach((cardId) => {
-          const item = document.createElement("span");
-          item.className = "exploration-destruction-card";
-          const label = document.createElement("span");
-          label.textContent = getExplorationCardLabel(cardId);
-          const returnButton = document.createElement("button");
-          returnButton.type = "button";
-          returnButton.className = "secondary";
-          returnButton.textContent = "移回";
-          returnButton.addEventListener("click", () => returnDestructionCard(cardId));
-          item.append(label, returnButton);
-          selectedList.appendChild(item);
+          if (listed.has(cardId)) return;
+          listed.add(cardId);
+          body.appendChild(destructionCard(cardId));
         });
-      } else {
-        const item = document.createElement("span");
-        item.className = "exploration-destruction-card";
-        item.textContent = "暂无";
-        selectedList.appendChild(item);
+
+        if (!destructionPileIds.length && !selectedDestructionIds.length) {
+          const empty = document.createElement("div");
+          empty.className = "exploration-summary";
+          empty.textContent = "破坏卡组为空。";
+          body.appendChild(empty);
+        }
+
+        const actions = document.createElement("div");
+        actions.className = "exploration-destruction-head";
+        const addButton = document.createElement("button");
+        addButton.type = "button";
+        addButton.className = "danger step-action-button";
+        addButton.textContent = "随机加入破坏卡";
+        addButton.disabled = destructionPileIds.length === 0;
+        addButton.addEventListener("click", addRandomDestructionCard);
+        actions.appendChild(addButton);
+        body.appendChild(actions);
+
+        section.appendChild(body);
       }
 
-      body.append(head, pileList, selectedTitle, selectedList);
-      section.append(summary, body);
+      section.append(summary);
       return section;
     }
 
@@ -6869,16 +7058,16 @@
       }
     }
 
-    async function writeServerArgoRecord(record, expectedRevision) {
+    async function writeServerArgoRecord(record, expectedRevision, profileId = archive.activeProfileId, accountId = sessionUser?.id || "") {
       const response = await fetch(`${authUrl}?section=record`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           section: "record",
-          userId: archive.activeProfileId,
+          userId: profileId,
           state: record,
           expectedRevision,
-          expectedAccountId: sessionUser?.id || "",
+          expectedAccountId: accountId,
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -6901,7 +7090,7 @@
         if (normalized === "refugee") refugees += 1;
         if (normalized === "captive") captives += 1;
       });
-      const legacyTotal = Math.max(0, Math.floor(Number(c2.crew ?? record.crew ?? 5) || 0));
+      const legacyTotal = Math.max(0, Math.floor(Number(c2.crew ?? ((!record.cycle || record.cycle === "c2") ? record.crew : undefined) ?? 5) || 0));
       c2.crewCounters = {
         crew: Math.max(0, legacyTotal - refugees - captives),
         refugees,
@@ -6985,7 +7174,7 @@
       return slot || "";
     }
 
-    function appendRecordSyncLog(record, message) {
+    function appendRecordSyncLog(record, message, cycleId = record.cycle) {
       const stamp = new Date().toLocaleString("zh-CN", {
         month: "2-digit",
         day: "2-digit",
@@ -6993,12 +7182,12 @@
         minute: "2-digit",
       });
       const line = `${stamp} ${message}`;
-      if (record.cycle) {
+      if (cycleId) {
         if (!isPlainObject(record.cycleStats)) record.cycleStats = {};
-        if (!isPlainObject(record.cycleStats[record.cycle])) record.cycleStats[record.cycle] = {};
-        const cycleStats = record.cycleStats[record.cycle];
-        cycleStats.syncLog = [line, cycleStats.syncLog ?? record.syncLog].filter(Boolean).join("\n").slice(0, 6000);
-        record.syncLog = cycleStats.syncLog;
+        if (!isPlainObject(record.cycleStats[cycleId])) record.cycleStats[cycleId] = {};
+        const cycleStats = record.cycleStats[cycleId];
+        cycleStats.syncLog = [line, cycleStats.syncLog ?? (record.cycle === cycleId ? record.syncLog : "")].filter(Boolean).join("\n").slice(0, 6000);
+        if (!record.cycle || record.cycle === cycleId) record.syncLog = cycleStats.syncLog;
       } else {
         record.syncLog = [line, record.syncLog].filter(Boolean).join("\n").slice(0, 6000);
       }
@@ -7597,6 +7786,10 @@
           }
           saveState();
           renderFlow();
+          if (step.id === "development" && checkbox.checked) void processExplorationDelays("development");
+          // 遭遇步骤打勾 = 今天的定时战斗已经打完：结算「下次定时战斗结束时…」的延迟效果，
+          // 并把暂时移出的探索卡放回牌堆（原先靠区块里的两个按钮，已移除）。
+          if (step.id === "encounter" && checkbox.checked) void completeTimelineBattle();
         });
 
         const text = document.createElement("div");
@@ -7647,6 +7840,8 @@
         if (step.id === "explore") {
           text.appendChild(createExplorationTools());
         }
+        const delayedTools = createDelayedExplorationStepTools(step.id);
+        if (delayedTools) text.appendChild(delayedTools);
         if (step.id === "survey") {
           const surveyTools = createSurveyConstantTools();
           if (surveyTools) text.appendChild(surveyTools);
@@ -7673,6 +7868,17 @@
       renderProgress();
       updateRecordLinks();
       syncBgmStage();
+      const delayRules = explorationDelayRules();
+      const cycleId = currentCycleConfig().id;
+      const due = delayRules?.getQueue(cachedArgoRecord || {}, cycleId, ["waiting"])
+        .filter((event) => event.kind === "tech-disable" && event.dueDay <= explorationDayNumber(state.day, cycleId)) || [];
+      if (due.length && bgmFlowStepId() === "development" && !mutateExplorationRecord.busy && ownsDashboardWriteLease()) {
+        const key = `${archive.activeProfileId}:${cycleId}:${state.day}:${due.map((event) => event.receiptId).join(",")}`;
+        if (processExplorationDelays.developmentKey !== key) {
+          processExplorationDelays.developmentKey = key;
+          void processExplorationDelays("development");
+        }
+      }
     }
 
     function createHiddenExplorationMenu(cards, selectedIds, disabledIds = new Set()) {
@@ -7757,13 +7963,13 @@
     }
 
     // Named factions on cards override the local faction (rulebook P15/P23).
-    function currentExplorationDiplomacy(card = null) {
+    function currentExplorationDiplomacy(card = null, record = cachedArgoRecord) {
       const cycleId = currentCycleConfig().id;
       const factions = card?.diplomacyFaction ? [card.diplomacyFaction] : currentMapFactions();
       return factions
         .filter((factionId) => factionId && factionId !== "none")
         .map((factionId, index) => {
-          const value = diplomacyValue(cycleId, factionId);
+          const value = diplomacyValue(cycleId, factionId, record);
           if (value === null) return null;
           const status = diplomacyStatus(cycleId, value);
           return {
@@ -7777,14 +7983,26 @@
         .filter(Boolean);
     }
 
-    function explorationSettlementContext(card = null, selectedFaction = "") {
+    function explorationSettlementContext(card = null, selectedFaction = "", entry = null) {
+      const piles = state.exploration?.drawStateByCycle?.[currentCycleConfig().id]?.activePiles || [];
+      const pile = entry ? piles.find((items) => items.some((item) => item.id === entry.id)) : null;
+      const blocked = currentCycleConfig().id === "c4" && Boolean(pile?.some((item) => item.id === "9326"));
+      const conditionContext = window.ATO_EXPLORATION_CONDITIONS?.contextForRecord(cachedArgoRecord || {}, currentCycleConfig().id) || {};
+      if (conditionContext.stats) Object.assign(conditionContext.stats, explorationDashboardTracks(cachedArgoRecord || {}));
       return {
+        ...conditionContext,
         cycleId: currentCycleConfig().id,
+        conditionRules: window.ATO_EXPLORATION_CONDITIONS || null,
+        resourceRules: explorationResourceRules(),
+        mapFactions: currentMapFactions(),
+        mapKnown: Boolean(state.mapSnapshot?.currentTileId || currentMapFactions().length || state.mapCurrentTileTags?.includes("none")),
         diplomacy: currentExplorationDiplomacy(card),
         diplomacyFaction: card?.diplomacyFaction || selectedFaction,
         diplomacyFactions: card?.diplomacyFaction ? [card.diplomacyFaction] : currentMapFactions().filter((id) => id !== "none"),
         // Lets the rules module print the record sheet's own resource names.
         dataset: explorationResourceDataset(),
+        blockResourceGains: blocked,
+        blockGains: blocked,
       };
     }
 
@@ -7807,62 +8025,1615 @@
     function clearExplorationSettlements(cycleId) {
       state.exploration = normalizeExploration(state.exploration);
       state.exploration.settledByCycle[cycleId] = {};
+      state.exploration.effectStateByCycle[cycleId] = {};
+      delete state.exploration.lastSettlementByCycle[cycleId];
     }
 
-    async function writeExplorationResourceChanges(changes, logMessage, mode = "apply") {
-      const rules = explorationResourceRules();
-      if (!rules) throw new Error("资源结算模块未加载，请刷新页面。");
-      if (!Array.isArray(changes) || !changes.length) return null;
+    function explorationEffectRules() {
+      return window.ATO_EXPLORATION_EFFECT_RULES || null;
+    }
 
-      const localRecord = readLocalArgoRecord();
-      let serverAvailable = false;
-      let serverRecord = null;
-      let serverRevision = 0;
+    function explorationOptionRules() {
+      return window.ATO_EXPLORATION_OPTION_RULES || null;
+    }
+
+    function explorationChoiceRules() {
+      return window.ATO_EXPLORATION_CHOICE_RULES || null;
+    }
+
+    function explorationDelayRules() {
+      return window.ATO_EXPLORATION_DELAY_RULES || null;
+    }
+
+    async function scheduleExplorationDelay(entry, card, descriptors, context, options = {}) {
+      const rules = explorationDelayRules();
+      if (!rules || !descriptors.length) return;
+      const cycleId = currentCycleConfig().id;
+      const effects = explorationEffectState(entry);
+      const result = await mutateExplorationRecord((record) => {
+        if (options.techCandidates) {
+          record.explorationAACandidates ||= {};
+          record.explorationAACandidates[cycleId] = options.techCandidates.map((item) => item.key);
+        }
+        explorationBatchReceipt(record, entry);
+        const result = rules.schedule(record, cycleId, explorationDayNumber(entry.day, cycleId), entry, {
+          card, descriptors, context, sourceKey: explorationRoundId(entry), ...options,
+        });
+        const ledger = explorationBatchReceipt(result.record, entry);
+        result.receipts.forEach((receipt) => { ledger.delays[receipt.id] = receipt.receiptId; });
+        ledger.context ||= explorationContextSnapshot(context);
+        return result;
+      }, `登记探索卡延迟效果 D${entry.day} ${entry.name} #${entry.id}`);
+      effects.delays ||= {};
+      result.receipts.forEach((receipt) => { effects.delays[receipt.id] = receipt.receiptId; });
+      effects.context ||= explorationContextSnapshot(context);
+      saveState();
+      renderFlow();
+    }
+
+    async function registerAutomaticExplorationDelays(entries) {
+      const rules = explorationDelayRules();
+      if (!rules || mutateExplorationRecord.busy || !ownsDashboardWriteLease()) return;
       try {
-        const server = await readServerArgoRecord();
-        serverAvailable = server.available;
-        serverRecord = server.record;
-        serverRevision = server.revision || serverRevision;
+        for (const entry of entries) {
+          const card = explorationCardResources(entry.id);
+          if (!card) continue;
+          const context = explorationCardContext(entry, card);
+          const effects = explorationEffectState(entry);
+          const descriptors = rules.delayed(card, context).filter((item) => item.conditionState === true
+            && item.kind !== "tech-disable" && !item.once && !effects.delays?.[item.id]);
+          if (descriptors.length) await scheduleExplorationDelay(entry, card, descriptors, context);
+        }
       } catch (error) {
         console.warn(error);
+        window.alert(`延迟效果登记失败：${error?.message || error}`);
       }
-      if (!serverAvailable) throw new Error("读取不到记录表存档，资源未写入。");
+    }
 
-      const applyChange = (baseRecord) => {
-        const record = mergeArgoRecords(baseRecord, localRecord);
-        record.profileName ||= "阿尔戈号记录";
-        record.cycle = currentCycleConfig().id;
-        const current = isPlainObject(record.resources) ? record.resources : {};
-        record.resources = mode === "revert"
-          ? rules.revertChanges(current, changes)
-          : rules.applyChanges(current, changes);
-        appendRecordSyncLog(record, logMessage);
-        return record;
-      };
-
-      let record = applyChange(serverRecord);
-      updateRecordLinks();
-      let written = false;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const writeResult = await writeServerArgoRecord(record, serverRevision);
-        if (!writeResult.conflict) {
-          recordSyncChannel?.postMessage({ revision: writeResult.revision });
-          written = true;
-          break;
+    async function processExplorationDelays(phase, options = {}) {
+      const rules = explorationDelayRules();
+      const cycleId = currentCycleConfig().id;
+      if (!rules || !ownsDashboardWriteLease()) return false;
+      const timelineEnd = phase === "timeline-battle-end";
+      // 定时战斗的结束结算不要求「本局已经登记过延迟效果」：它还要把暂时移出的探索卡
+      // 放回牌堆，而那张卡可能根本没带延迟效果。
+      if (!cachedArgoRecord?.explorationDelays && !phase.startsWith("timeline-battle-")) return false;
+      const targetState = state;
+      try {
+        const result = await mutateExplorationRecord((record) => rules.process(record, cycleId,
+          explorationDayNumber(state.day, cycleId), phase, options), `处理探索卡延迟效果 D${state.day} · ${phase}`);
+        if (state !== targetState || currentCycleConfig().id !== cycleId) return true;
+        // 定时战斗结束：一次性期限重置、「下次定时战斗后放回」的卡回牌堆。「暂时移出」的
+        // 探索卡一律跟着这次结束放回（哪怕这一级没有任何延迟效果到期），它本来就写着
+        // 「直到下一次定时战斗」。
+        if (timelineEnd) {
+          returnTemporaryExplorationCards();
+          for (const action of result.actions.filter((item) => item.type === "return-exploration-card")) {
+            if (action.receiptId) {
+              await mutateExplorationRecord((record) => rules.complete(record, action.receiptId), "定时战斗后放回探索卡");
+            }
+          }
         }
-        const latest = await readServerArgoRecord();
-        serverRevision = latest.revision || serverRevision;
-        record = applyChange(latest.record);
+        saveState(); renderFlow();
+        return true;
+      } catch (error) {
+        console.warn(error);
+        window.alert(`延迟效果处理失败：${error?.message || error}`);
+        return false;
       }
-      if (!written) throw new Error("记录表被其他页面改动，请刷新后重试。");
-      cachedArgoRecord = record;
+    }
+
+    // 今天的定时战斗打完了 —— 由「遭遇」步骤打勾触发（战斗本身在故事书战斗模块完成）。
+    // 只有「今天的时间表真的标了战斗」或「确实还挂着定时战斗相关效果」时才结算：否则随便
+    // 勾一下遭遇步骤就会推进纪元，把「下次定时战斗结束时」的效果给提前清掉。
+    // 先结算「战斗开始时」的效果（登记/展示），再结算「战斗结束时」的效果，顺序与原按钮
+    // 一致。事件编号按「循环+日期」取值是刻意的：同一天重复勾选会被 rules.process 认成
+    // 同一场战斗，纪元不会连加，一次性效果也不会重复重置。
+    async function completeTimelineBattle() {
+      if (!ownsDashboardWriteLease()) return false;
+      const cycleId = currentCycleConfig().id;
+      const queue = explorationDelayRules()?.getQueue(cachedArgoRecord || {}, cycleId, ["waiting", "ready"]) || [];
+      const hasTimelineEffect = queue.some((item) => item.trigger === "timeline-battle-start"
+        || item.trigger === "timeline-battle-end");
+      const battleToday = typeof todayTrackIcons === "function"
+        && todayTrackIcons().some((icon) => icon.className === "battle");
+      // 「暂时移出」的探索卡写着「直到下一次定时战斗」，所以有卡待放回时也必须在这次结算。
+      const hasTemporary = (state.exploration?.drawStateByCycle?.[cycleId]?.temporaryRemoved?.length || 0) > 0;
+      if (!hasTimelineEffect && !battleToday && !hasTemporary) return false;
+      const day = explorationDayNumber(state.day, cycleId);
+      const eventId = `${cycleId}:D${day}:timeline`;
+      const started = await processExplorationDelays("timeline-battle-start", { timelineBattle: true, eventId });
+      const ended = await processExplorationDelays("timeline-battle-end", { timelineBattle: true, eventId });
+      if (started === false || ended === false) {
+        window.alert("定时战斗结算失败，请重试。");
+        return false;
+      }
+      return true;
+    }
+
+    function createExplorationDelayCardTools(entry, card, context) {
+      const rules = explorationDelayRules();
+      const descriptors = rules?.delayed(card, { ...context, resourceRules: explorationResourceRules() })
+        .filter((item) => item.conditionState !== false && !explorationDelayManaged(entry, card, context, item)
+          && !explorationNumericOnce(item, context, entry)) || [];
+      if (!descriptors.length) return null;
+      const effects = explorationEffectState(entry);
+      const cycleId = currentCycleConfig().id;
+      const box = document.createElement("div");
+      box.className = "exploration-delay-tools";
+      const queue = rules.getQueue(cachedArgoRecord || {}, cycleId);
+      const action = (parent, label, callback) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try { await callback(); }
+          catch (error) { button.disabled = false; window.alert(`延迟效果处理失败：${error?.message || error}`); }
+        });
+        parent.appendChild(button);
+      };
+      descriptors.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "exploration-effect-controls";
+        const text = document.createElement("span");
+        const receipt = queue.find((value) => value.receiptId === effects.delays?.[item.id]
+          || (item.once && value.onceKey === `${cycleId}:${entry.id}:${item.id}` && !["done", "cancelled", "expired"].includes(value.status)));
+        const effectText = explorationEffectRules()?.displayIcons(item.once ? item.text : item.label, cycleId, entry.id, item.badge) || item.label;
+        text.textContent = `${item.badge ? `[${item.badge}] ` : ""}${effectText}${receipt && receipt.status !== "cancelled" ? ` · 已登记：${receipt.label || item.label}` : ""}`;
+        const placements = item.once ? explorationEffectRules()?.parse(item.text, cycleId, entry.id, item.badge).effects.filter(explorationNeedsPlacement) || [] : [];
+        if (placements.length && !receipt) text.textContent += ` · ${explorationPlacementText(placements)}`;
+        row.appendChild(text);
+        if (effects.skipped[item.id]) {
+          text.textContent += " · 已确认未触发";
+          action(row, "恢复待办", () => { if (!ownsDashboardWriteLease()) return; delete effects.skipped[item.id]; saveState(); renderFlow(); });
+        } else if (receipt && !["cancelled", "expired"].includes(receipt.status)) {
+          if (["waiting", "ready"].includes(receipt.status)) action(row, "撤销延迟安排", async () => {
+            await mutateExplorationRecord((record) => {
+              explorationBatchReceipt(record, entry);
+              const current = rules.getQueue(record, cycleId).find((value) => value.receiptId === receipt.receiptId);
+              const result = current?.status === "cancelled" ? { record } : rules.cancel(record, receipt.receiptId);
+              delete explorationBatchReceipt(result.record, entry).delays[item.id];
+              return result;
+            }, "撤销探索卡延迟安排");
+            delete effects.delays[item.id]; saveState(); renderFlow();
+          });
+        } else {
+          const candidateInputs = [];
+          if (item.kind === "tech-disable") {
+            const candidates = (state.unlockedTech?.unlocked || []).filter((tech) => tech.category === "structure");
+            const saved = cachedArgoRecord?.explorationAACandidates?.[cycleId] || [];
+            const picker = document.createElement("details");
+            const title = document.createElement("summary");
+            title.textContent = "确认参与随机的已解锁 AA 科技";
+            picker.appendChild(title);
+            candidates.forEach((tech) => {
+              const label = document.createElement("label");
+              const input = document.createElement("input");
+              input.type = "checkbox";
+              input.checked = saved.includes(tech.key);
+              input.value = tech.key;
+              label.append(input, document.createTextNode(tech.displayName || tech.nameZh || tech.name || tech.key));
+              picker.appendChild(label);
+              candidateInputs.push({ input, tech });
+            });
+            if (!candidates.length) {
+              const empty = document.createElement("span");
+              empty.textContent = "请先在科技页同步已解锁科技。";
+              picker.appendChild(empty);
+            }
+            row.appendChild(picker);
+          }
+          action(row, item.kind === "tech-disable" ? "确认条件成立，随机禁用 AA" : (item.once ? placements.length ? "已手动放置，登记次数限制" : "已结算本次收益，登记次数限制" : (item.conditionState === null ? "确认条件成立并登记" : "登记延迟效果")), async () => {
+            const techCandidates = candidateInputs.filter(({ input }) => input.checked).map(({ tech }) => ({
+              key: tech.key, label: tech.displayName || tech.nameZh || tech.name, aa: true, unlocked: true,
+            }));
+            await scheduleExplorationDelay(entry, card, [item], context, { confirmed: true,
+              ...(item.kind === "tech-disable" ? { techCandidates } : {}),
+            });
+          });
+          if (item.conditionState === null) action(row, "条件未触发", () => {
+            if (!ownsDashboardWriteLease()) return;
+            effects.skipped[item.id] = true; saveState(); renderFlow();
+          });
+        }
+        box.appendChild(row);
+      });
+      return box;
+    }
+
+    function createDelayedExplorationStepTools(stepId) {
+      const rules = explorationDelayRules();
+      if (!rules || !["encounter", "development"].includes(stepId)) return null;
+      const cycleId = currentCycleConfig().id;
+      const queue = rules.getQueue(cachedArgoRecord || {}, cycleId, ["waiting", "ready"]);
+      const relevant = queue.filter((item) => stepId === "development" ? item.kind === "tech-disable" : item.kind !== "tech-disable");
+      const temporary = state.exploration?.drawStateByCycle?.[cycleId]?.temporaryRemoved?.length || 0;
+      // 遭遇步骤没有「开始定时战斗 / 定时战斗已完成」按钮了，所以这里只在真的有延迟效果
+      // 或暂时移出的卡时出现；战斗当天的提醒走 getStepTrackReminders 的「今日战斗」。
+      if (!relevant.length && (stepId === "development" || !temporary)) return null;
+      const box = document.createElement("div");
+      box.className = "exploration-delay-tools";
+      const button = (parent, label, callback) => {
+        const node = document.createElement("button");
+        node.type = "button";
+        node.textContent = label;
+        node.addEventListener("click", () => void callback());
+        parent.appendChild(node);
+      };
+      if (stepId === "development") button(box, "处理本日到期修复", () => processExplorationDelays("development"));
+      // 遭遇步骤不再放「开始定时战斗 / 定时战斗已完成」两个按钮：战斗本身在故事书战斗
+      // 模块打，这两个按钮并不能开战或结算战斗，只会让人以为要在这里点。定时战斗的
+      // 结束结算改由「勾选遭遇步骤」触发（见 completeTimelineBattle），过渡期里的
+      // 「下次定时战斗开始时…」效果仍以本区块的文字形式提醒玩家。
+      relevant.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "exploration-effect-controls";
+        const text = document.createElement("span");
+        text.textContent = `${item.cardName} · ${item.label || item.text}${item.status === "ready" ? " · 到期待处理" : ""}`;
+        row.appendChild(text);
+        if (item.status === "ready") {
+          if (item.kind === "end-step-battle") {
+            const link = document.createElement("a");
+            link.textContent = `进入 ${item.battle}`;
+            link.href = getStoryHref({ module: "battle", battle: item.battle });
+            link.addEventListener("click", () => void processExplorationDelays("card-battle-start", { battle: item.battle }));
+            row.appendChild(link);
+          }
+          button(row, "延迟效果已处理", async () => {
+            try {
+              await mutateExplorationRecord((record) => rules.complete(record, item.receiptId), "确认探索卡延迟效果已处理");
+              renderFlow();
+            } catch (error) { window.alert(error.message); }
+          });
+        }
+        box.appendChild(row);
+      });
+      return box;
+    }
+
+    function explorationRoundId(entry) {
+      return `${currentCycleConfig().id}:${entry.id}:${entry.drawnAt || entry.day}`;
+    }
+
+    function explorationDayNumber(value, cycleId = currentCycleConfig().id) {
+      const day = normalizeCampaignDay(value, cycleId);
+      return typeof day === "number" ? day : 0;
+    }
+
+    function explorationEffectState(entry) {
+      const { cycleId, key } = explorationSettlementStore(entry);
+      const stores = state.exploration.effectStateByCycle;
+      stores[cycleId] ||= {};
+      stores[cycleId][key] ||= { applied: {}, manual: {}, skipped: {} };
+      const value = stores[cycleId][key];
+      value.applied ||= {};
+      value.manual ||= {};
+      value.skipped ||= {};
+      value.choices ||= {};
+      return value;
+    }
+
+    function explorationBatchReceipt(record, entry) {
+      record.explorationBatchReceipts = isPlainObject(record.explorationBatchReceipts) ? record.explorationBatchReceipts : {};
+      const roundId = explorationRoundId(entry);
+      if (!record.explorationBatchReceipts[roundId]) {
+        // Migrate marks from rounds started before server receipts existed. Once
+        // created, the server receipt is authoritative, including deleted marks.
+        const local = explorationEffectState(entry);
+        record.explorationBatchReceipts[roundId] = JSON.parse(JSON.stringify({ version: 1,
+          applied: local.applied, delays: local.delays || {}, resource: getExplorationSettlement(entry),
+          wishReceipt: local.wishReceipt, context: local.context || getExplorationSettlement(entry)?.context,
+        }));
+      }
+      const receipt = record.explorationBatchReceipts[roundId];
+      receipt.applied ||= {};
+      receipt.delays ||= {};
+      if (receipt.context && !explorationResourceRules().diplomacyItems(receipt.context).length) delete receipt.context;
+      return receipt;
+    }
+
+    function syncExplorationBatchReceipt(entry, receipt) {
+      syncExplorationDashboardTracks(cachedArgoRecord || {});
+      const local = explorationEffectState(entry);
+      const previousRemovals = Object.values(local.applied || {}).map(item => item.removal).filter(Boolean);
+      const previousRemoval = previousRemovals.at(-1);
+      const nextRemoval = Object.values(receipt.applied || {}).map(item => item.removal).filter(Boolean).at(-1);
+      if (nextRemoval) entry.removal = nextRemoval.after;
+      else if (previousRemoval && entry.removal === previousRemoval.after) entry.removal = previousRemovals[0].before;
+      local.applied = JSON.parse(JSON.stringify(receipt.applied || {}));
+      local.delays = { ...(receipt.delays || {}) };
+      if (receipt.context) local.context = receipt.context;
+      else delete local.context;
+      if (receipt.wishReceipt) local.wishReceipt = receipt.wishReceipt;
+      else delete local.wishReceipt;
+      const { store, key } = explorationSettlementStore(entry);
+      if (receipt.resource) store[key] = receipt.resource;
+      else delete store[key];
+    }
+
+    function explorationDashboardTracks(record) {
+      const cycleId = currentCycleConfig().id;
+      const knowledgeMinimum = typeof argoKnowledgeStart === "function" ? argoKnowledgeStart(cycleId) : 0;
+      const totals = {
+        progress: Math.max(0, Number(state.cardTracks?.story?.progress || 0)),
+        doom: Math.max(0, Number(state.cardTracks?.doom?.doom || 0)),
+        knowledge: Math.max(knowledgeMinimum, Number(state.cardTracks?.inwardOdyssey?.position ?? knowledgeMinimum)),
+      };
+      const seen = state.exploration?.trackReceiptsByCycle?.[cycleId] || {};
+      for (const item of record.explorationTrackTransactions || []) {
+        if (item.cycleId === cycleId && !seen[item.id] && Object.prototype.hasOwnProperty.call(totals, item.type)) {
+          totals[item.type] = Math.max(item.type === "knowledge" ? knowledgeMinimum : 0, totals[item.type] + item.amount);
+        }
+      }
+      return totals;
+    }
+
+    function syncExplorationDashboardTracks(record) {
+      const cycleId = currentCycleConfig().id;
+      const totals = explorationDashboardTracks(record);
+      state.exploration.trackReceiptsByCycle ||= {};
+      const seen = state.exploration.trackReceiptsByCycle[cycleId] ||= {};
+      const locations = { progress: ["story", "progress"], doom: ["doom", "doom"], knowledge: ["inwardOdyssey", "position"] };
+      for (const item of record.explorationTrackTransactions || []) {
+        if (item.cycleId !== cycleId || seen[item.id] || !locations[item.type]) continue;
+        const [key, field] = locations[item.type];
+        state.cardTracks ||= {};
+        state.cardTracks[key] ||= { position: 0, progress: 0, doom: 0 };
+        state.cardTracks[key][field] = totals[item.type];
+        seen[item.id] = true;
+      }
+    }
+
+    function explorationContextSnapshot(context) {
+      if (!explorationResourceRules().diplomacyItems(context).length) return null;
+      return JSON.parse(JSON.stringify({
+        diplomacy: context.diplomacy,
+        diplomacyFaction: context.diplomacyFaction,
+        diplomacyFactions: context.diplomacyFactions,
+      }));
+    }
+
+    function explorationCardContext(entry, card, selectedFaction = "") {
+      const saved = getExplorationSettlement(entry);
+      const effects = explorationEffectState(entry);
+      const live = explorationSettlementContext(card, selectedFaction || effects.choices.diplomacyFaction || "", entry);
+      const stored = effects.context || saved?.context;
+      const frozen = stored && explorationResourceRules().diplomacyItems(stored).length ? stored : {};
+      const context = { ...live, ...frozen, stats: live.stats, record: live.record };
+      context.appliedEffects = effects.applied;
+      context.manualEffects = effects.manual;
+      if (!frozen.diplomacy?.length) {
+        context.diplomacy = live.diplomacy;
+        if (!live.diplomacy.length && Number.isInteger(effects.choices.diplomacyBonus)) {
+          const id = card.diplomacyFaction || context.diplomacyFaction || context.diplomacyFactions[0] || "chosen";
+          context.diplomacyFaction = id;
+          context.diplomacyFactions = [id];
+          context.diplomacy = [{ id, bonus: effects.choices.diplomacyBonus, label: mapFactionLabel(context.cycleId, id, -1) }];
+        }
+      }
+      return context;
+    }
+
+    function explorationBatchContext(entry, card, record, receipt) {
+      const context = explorationCardContext(entry, card);
+      const frozen = receipt.context;
+      context.diplomacy = frozen?.diplomacy?.length ? frozen.diplomacy : currentExplorationDiplomacy(card, record);
+      if (frozen?.diplomacyFaction) context.diplomacyFaction = frozen.diplomacyFaction;
+      if (frozen?.diplomacyFactions) context.diplomacyFactions = frozen.diplomacyFactions;
+      if (!context.diplomacy.length && Number.isInteger(explorationEffectState(entry).choices.diplomacyBonus)) {
+        const id = card.diplomacyFaction || context.diplomacyFaction || context.diplomacyFactions[0] || "chosen";
+        context.diplomacy = [{ id, bonus: explorationEffectState(entry).choices.diplomacyBonus, label: mapFactionLabel(context.cycleId, id, -1) }];
+      }
+      Object.assign(context, window.ATO_EXPLORATION_CONDITIONS?.contextForRecord(record, context.cycleId) || {});
+      if (context.stats) {
+        Object.assign(context.stats, explorationDashboardTracks(record));
+      }
+      context.appliedEffects = receipt.applied;
+      return context;
+    }
+
+    function explorationAutomaticTitanLosses(record, item) {
+      const requested = -item.effects.filter((effect) => effect.type === "titan" && effect.amount < 0).reduce((sum, effect) => sum + effect.amount, 0);
+      return explorationEffectRules().automaticTitanLosses(record, requested);
+    }
+
+    function explorationSingleAutomaticEffect(entry, card, record, receipt) {
+      const context = explorationBatchContext(entry, card, record, receipt);
+      const rules = explorationResourceRules();
+      if (card.diplomacyMenu && !rules.diplomacyItems(context).length) return null;
+      const plan = rules.plan(card, context);
+      if (explorationOptionRules()?.merchant(card) || card.key === "c4:9333") return null;
+      if (explorationDelayRules()?.delayed(card, context).some(item => item.conditionState !== false)) return null;
+      let items = explorationEffectDescriptors(entry, card, context);
+      const attached = items.filter(item => item.requiresResource && !receipt.applied?.[item.id]);
+      if (receipt.resource && attached.length) items = attached;
+      else if (plan.status === "choice" || plan.grants.length || plan.variants.length) return null;
+      if (items.length !== 1) return null;
+      const item = items[0];
+      const local = explorationEffectState(entry);
+      if (item.conditionState !== true || item.effects.length !== 1 || item.remainder || item.dynamic || item.blocked || item.receiptMismatch
+        || receipt.applied?.[item.id] || local.applied[item.id] || local.manual[item.id] || local.skipped[item.id]
+        || local.choices.autoSinglePaused?.[item.id]) return null;
+      if (item.effects[0].type === "titan" && item.effects[0].amount < 0) return null;
+      return item;
+    }
+
+    async function settleSingleExplorationEffects(entries) {
+      if (mutateExplorationRecord.busy || settleExplorationDraw.busy || !ownsDashboardWriteLease()) return;
+      const active = new Set(ensureExplorationDrawState().activePiles.flat().map(explorationRoundId));
+      const current = entries.filter(entry => active.has(explorationRoundId(entry)));
+      if (!current.some(entry => {
+        const card = explorationCardResources(entry.id);
+        const receipt = cachedArgoRecord?.explorationBatchReceipts?.[explorationRoundId(entry)]
+          || { applied: {}, delays: {}, resource: getExplorationSettlement(entry) };
+        return card && (explorationSingleAutomaticEffect(entry, card, cachedArgoRecord || {}, receipt)
+          || Object.entries(receipt.applied || {}).some(([id, applied]) => applied.automaticSingle && !explorationEffectState(entry).applied[id]));
+      })) return;
+      const cycleId = currentCycleConfig().id;
+      try {
+        const result = await mutateExplorationRecord(record => applyAutomaticExploration(record, current, { singleEffectOnly: true }),
+          `抽牌自动结算单项效果 D${state.day}：${current.map(entry => entry.name).join("、")}`);
+        result.updates.forEach(({ entry, receipt }) => syncExplorationBatchReceipt(entry, receipt));
+        const pending = pendingExplorationEffects();
+        const previous = state.exploration.lastSettlementByCycle[cycleId]?.completed || [];
+        state.exploration.lastSettlementByCycle[cycleId] = { at: Date.now(), completed: [...previous, ...result.completed], pending };
+        saveState();
+        if (!pending.length) markExplorationSettlePrepared(true);
+        else renderFlow();
+      } catch (error) {
+        window.alert(`单项效果自动结算失败，卡牌已保留，可点击一键结算重试：${error?.message || error}`);
+        renderFlow();
+      }
+    }
+
+    async function settleExplorationCard(entry) {
+      if (mutateExplorationRecord.busy || settleExplorationDraw.busy || !ownsDashboardWriteLease()) return;
+      if (!ensureExplorationDrawState().activePiles.flat().some(value => explorationRoundId(value) === explorationRoundId(entry))) return;
+      const cycleId = currentCycleConfig().id;
+      const result = await mutateExplorationRecord(record => applyAutomaticExploration(record, [entry]),
+        `探索卡自动结算 D${entry.day} ${entry.name} #${entry.id}`);
+      result.updates.forEach(({ entry: current, receipt }) => syncExplorationBatchReceipt(current, receipt));
+      const previous = state.exploration.lastSettlementByCycle[cycleId]?.completed || [];
+      state.exploration.lastSettlementByCycle[cycleId] = {
+        at: Date.now(), completed: [...previous, ...result.completed], pending: pendingExplorationEffects(),
+      };
+      saveState();
+      renderFlow();
+    }
+
+    function explorationHasRecordOperation(item) {
+      return Boolean(item.effects?.length || item.resourceChanges?.length || item.removal || item.automaticOperation);
+    }
+
+    function explorationNeedsPlacement(effect) {
+      return ["progress", "doom"].includes(effect.type) && effect.amount > 0;
+    }
+
+    function explorationPlacementText(effects) {
+      return `请手动选择放置位置并放置：${effects.map(effect => `${effect.type === "progress" ? "进展" : "灾祸"} +${effect.amount}`).join("，")}`;
+    }
+
+    function explorationManualPlacement(item, applied = null) {
+      const placements = item.manualPlacements?.length ? item.manualPlacements : (item.effects || []).filter(explorationNeedsPlacement);
+      if (!placements.length) return item;
+      const effects = (item.effects || []).filter(effect => !explorationNeedsPlacement(effect));
+      // Historical gains remain undoable; never silently undo or ask to place them again.
+      const alreadyWritten = placements.every(placement => applied?.changes?.some(change => change.type === placement.type && change.amount > 0));
+      const hint = explorationPlacementText(placements);
+      const remainder = alreadyWritten ? item.remainder || "" : [item.remainder, item.remainder?.includes(hint) ? "" : hint].filter(Boolean).join("；");
+      return { ...item, effects, remainder, manualPlacements: alreadyWritten ? [] : placements,
+        ...(!alreadyWritten && !effects.length && !item.resourceChanges?.length && !item.removal
+          ? { displayText: item.dynamic ? `${item.text}；${hint}` : hint } : {}),
+        automaticOperation: Boolean(item.automaticOperation && (effects.length || item.resourceChanges?.length || item.removal)) };
+    }
+
+    function explorationNumericOnce(item, context, entry) {
+      return item.once && (context.appliedEffects?.[item.id] || explorationEffectRules()?.parse(item.text, context.cycleId, entry.id, item.badge).effects
+        .some(effect => !explorationNeedsPlacement(effect)));
+    }
+
+    function explorationLegacyGroupIds(entry, item, context) {
+      if (context.appliedEffects?.[item.id]) return [];
+      const local = explorationEffectState(entry);
+      const ids = [...new Set([...(item.manualIds || (item.manualIndexes || []).map(index => `manual:${index}`)),
+        ...(item.blockedManualIndexes || []).map(index => `manual:${index}`)])];
+      return ids.filter(id => context.appliedEffects?.[id] || local.manual[id] || local.skipped[id]);
+    }
+
+    function explorationManagedChoices(entry, card, context) {
+      const items = explorationChoiceRules()?.descriptors(card, context) || [];
+      if (card.key === "c4:9329") {
+        const plan = explorationOptionRules()?.duesPlan(context.record || {}, context.cycleId, explorationResourceDataset());
+        if (plan) items.push({ id: "choice:dues", text: "选择库存足够的代缴资源", manualIndexes: plan.manualIndexes || [0, 1, 2, 3, 4],
+          conditionState: plan.status === "choice" ? true : plan.status === "manual" ? null : false, effects: [], dynamic: true,
+          choices: (plan.choices || []).map(choice => ({ id: choice.resource, label: choice.label })), duesPlan: plan });
+      }
+      return items.map(item => ({ ...item, legacyIds: explorationLegacyGroupIds(entry, item, context) }));
+    }
+
+    function explorationDelayManaged(entry, card, context, delayed) {
+      const groups = [...(window.ATO_EXPLORATION_CONDITIONS?.simpleConditionalEffects(card, context) || []),
+        ...(explorationChoiceRules()?.automatic(card, context) || []), ...explorationManagedChoices(entry, card, context)];
+      return groups.some(group => (delayed.manualIndexes || []).every(index => group.manualIndexes?.includes(index)));
+    }
+
+    function applyExplorationOperation(record, entry, item, context, titanLosses = []) {
+      const rules = explorationEffectRules();
+      let effects = item.effects || [];
+      let duesReceipt = null;
+      let removal = item.removal;
+      let resources = [];
+      if (item.duesPlan) {
+        const dues = explorationOptionRules().applyDues(record, item.duesPlan, item.choiceId || null, explorationResourceDataset());
+        record = dues.record;
+        effects = dues.effects;
+        duesReceipt = dues.receipt;
+        resources = dues.changes;
+        removal = dues.removePermanent ? "permanent" : "remove";
+      }
+      item = explorationManualPlacement({ ...item, effects });
+      effects = item.effects;
+      const applied = rules.apply(record, context.cycleId, effects, { titanLosses, stats: context.stats,
+        minimums: { knowledge: typeof argoKnowledgeStart === "function" ? argoKnowledgeStart(context.cycleId) : 0 } });
+      record = applied.record;
+      if (!duesReceipt) for (const change of item.resourceChanges || []) {
+        const before = Number(record.resources?.[change.storageKey] ?? 0);
+        const after = before + change.amount;
+        if (!Number.isSafeInteger(before) || before < 0 || !Number.isSafeInteger(after) || after < 0) throw new Error("资源库存无效或已变化，请重新读取后结算。");
+        (record.resources ||= {})[change.storageKey] = after;
+        resources.push({ ...change, type: "add", cycleId: context.cycleId,
+          label: explorationResourceDataset().cycles[context.cycleId]?.resources[change.resource]?.zh || change.resource, before, after });
+      }
+      const parts = [applied.changes.length ? applied.summary : "", resources.length ? explorationResourceRules().describeChanges(resources) : "",
+        item.duesPlan?.fallback ? "三种资源均不足" : "", !applied.changes.length && !resources.length ? item.manualPlacements?.length ? "已记录结算要求" : item.choiceLabel || "" : "",
+        removal ? ({ keep: "洗回牌堆", remove: "暂时移出", permanent: "永久移出" })[removal] : ""].filter(Boolean);
+      const descriptor = {};
+      for (const key of ["id", "text", "displayText", "summary", "effects", "resourceChanges", "removal", "remainder", "manualPlacements", "manualIndexes", "dynamic", "automaticOperation", "blockedManualIndexes", "requiresEffect", "requiresManual", "badge"]) {
+        if (item[key] !== undefined) descriptor[key] = JSON.parse(JSON.stringify(item[key]));
+      }
+      return { record, receipt: { at: Date.now(), ruleVersion: rules.version, batchRoundId: explorationRoundId(entry),
+        changes: applied.changes, resourceChanges: duesReceipt ? [] : resources, summary: parts.join("；") || "无数值变化", descriptor,
+        ...(item.manualPlacements?.length ? { manualPlacements: item.manualPlacements } : {}),
+        ...(duesReceipt ? { duesReceipt } : {}), ...(item.choiceId ? { choiceId: item.choiceId } : {}),
+        ...(removal ? { removal: { before: entry.removal || "keep", after: removal } } : {}) } };
+    }
+
+    function revertExplorationOperation(record, receipt) {
+      record = explorationEffectRules().revert(record, receipt.changes || [], { stats: explorationDashboardTracks(record),
+        minimums: { knowledge: typeof argoKnowledgeStart === "function" ? argoKnowledgeStart(currentCycleConfig().id) : 0 } });
+      if (receipt.duesReceipt) return explorationOptionRules().undoDues(record, receipt.duesReceipt);
+      for (const change of receipt.resourceChanges || []) {
+        const after = Number(record.resources?.[change.storageKey] ?? 0) - change.amount;
+        if (!Number.isSafeInteger(after) || after < 0) throw new Error("资源已被使用，无法完整撤销本项收益。");
+        (record.resources ||= {})[change.storageKey] = after;
+      }
       return record;
     }
 
-    function createExplorationSettleBlock(entry, selectedFaction = "") {
+    async function writeExplorationChoice(entry, id, choiceId, expectedPlan = null) {
+      const result = await mutateExplorationRecord(record => {
+        const ledger = explorationBatchReceipt(record, entry);
+        if (ledger.applied[id]) return { record, receipt: ledger };
+        const card = explorationCardResources(entry.id);
+        const context = explorationBatchContext(entry, card, record, ledger);
+        const available = explorationManagedChoices(entry, card, context).find(item => item.id === id);
+        if (!available || available.conditionState !== true || available.legacyIds.length) throw new Error("选择条件或旧结算状态已变化，请按刷新后的选项处理。");
+        if (available.requiresEffect && !ledger.applied[available.requiresEffect] && !explorationEffectState(entry).manual[available.requiresEffect]) throw new Error("请先结算本卡前面的地图或数值效果。");
+        if (available.requiresManual && !explorationEffectState(entry).manual[available.requiresManual]) throw new Error("请先处理本卡特殊事件，并标记其余效果完成。");
+        if (explorationEffectState(entry).manual[id] || explorationEffectState(entry).skipped[id]) throw new Error("本项已手动处理，请先恢复待办。");
+        const item = id === "choice:dues" ? { ...available, duesPlan: expectedPlan || available.duesPlan, choiceId, choiceLabel: available.choices.find(choice => choice.id === choiceId)?.label }
+          : { ...explorationChoiceRules().resolve(card, context, id, choiceId), choiceId };
+        const applied = applyExplorationOperation(record, entry, item, context);
+        explorationBatchReceipt(applied.record, entry).applied[id] = applied.receipt;
+        explorationBatchReceipt(applied.record, entry).context ||= explorationContextSnapshot(context);
+        return { record: applied.record, receipt: explorationBatchReceipt(applied.record, entry) };
+      }, `结算探索卡选择 D${entry.day} ${entry.name}`);
+      syncExplorationBatchReceipt(entry, result.receipt);
+      markExplorationSettlePrepared(false);
+      saveState(); renderFlow();
+    }
+
+    function applyAutomaticExploration(record, entries, options = {}) {
+      const resourceRules = explorationResourceRules();
+      const effectRules = explorationEffectRules();
+      if (!resourceRules || !effectRules) throw new Error("探索结算模块未加载，请刷新页面。");
+      const updates = [];
+      const completed = [];
+      for (const entry of entries) {
+        const card = explorationCardResources(entry.id);
+        if (!card) continue;
+        const local = explorationEffectState(entry);
+        let receipt = explorationBatchReceipt(record, entry);
+        let context = explorationBatchContext(entry, card, record, receipt);
+        const single = options.singleEffectOnly ? explorationSingleAutomaticEffect(entry, card, record, receipt) : null;
+        if (options.singleEffectOnly && !single) {
+          for (const [id, applied] of Object.entries(receipt.applied)) {
+            if (applied.automaticSingle && !local.applied[id]) completed.push(`${entry.name}：${applied.summary}`);
+          }
+          updates.push({ entry, receipt: JSON.parse(JSON.stringify(receipt)) });
+          continue;
+        }
+        const remember = () => { explorationBatchReceipt(record, entry).context ||= explorationContextSnapshot(context); };
+        if (card.diplomacyMenu && !resourceRules.diplomacyItems(context).length) {
+          updates.push({ entry, receipt: JSON.parse(JSON.stringify(receipt)) });
+          continue;
+        }
+        if (!receipt.resource) {
+          const plan = resourceRules.plan(card, context);
+          if (plan.status === "auto" && plan.grants.length) {
+            const changes = resourceRules.planChanges(explorationResourceDataset(), context.cycleId, plan.grants);
+            const before = record.resources || {};
+            const after = resourceRules.applyChanges(before, changes);
+            changes.forEach((change) => {
+              if (change.type === "add") change.amount = Number(after[change.storageKey] || 0) - Number(before[change.storageKey] || 0);
+            });
+            record.resources = after;
+            receipt.resource = { at: Date.now(), day: entry.day, cardId: entry.id, variant: "auto", changes,
+              summary: resourceRules.describeChanges(changes), context: explorationContextSnapshot(context), batchRoundId: explorationRoundId(entry) };
+            remember();
+            completed.push(`${entry.name}：${receipt.resource.summary}`);
+          }
+        }
+        // Evaluate each instruction against the record produced by the previous
+        // one. In particular, Fate gains can enable a later independent badge.
+        const initial = explorationEffectDescriptors(entry, card, context);
+        const rank = id => initial.find(item => item.id === id)?.manualIndexes?.[0]
+          ?? (id.startsWith("manual:") ? Number(id.split(":")[1]) : Number.MAX_SAFE_INTEGER);
+        const sourceIds = [...new Set([...(card.manual || []).map((_, index) => `manual:${index}`), ...initial.map(item => item.id)])]
+          .sort((a, b) => rank(a) - rank(b));
+        for (const id of sourceIds) {
+          if (single && id !== single.id) continue;
+          receipt = explorationBatchReceipt(record, entry);
+          if (receipt.applied[id] || local.skipped[id]) continue;
+          context = explorationBatchContext(entry, card, record, receipt);
+          const item = explorationEffectDescriptors(entry, card, context).find((candidate) => candidate.id === id);
+          if (!item || item.conditionState !== true || !explorationHasRecordOperation(item)) continue;
+          if (options.attachedEffectOnly && !item.requiresResource) continue;
+          if (item.requiresResource && !receipt.resource) continue;
+          if (item.requiresEffect && !receipt.applied[item.requiresEffect] && !local.manual[item.requiresEffect]) continue;
+          if (item.requiresManual && !local.manual[item.requiresManual]) continue;
+          if (local.manual[id] && (item.dynamic || !item.remainder)) continue;
+          const losses = explorationAutomaticTitanLosses(record, item);
+          if (losses === null) continue;
+          const applied = applyExplorationOperation(record, entry, item, context, losses);
+          record = applied.record;
+          const liveReceipt = explorationBatchReceipt(record, entry);
+          liveReceipt.applied[item.id] = { ...applied.receipt,
+            ...(single ? { automaticSingle: true } : {}) };
+          if (item.requiresResource) liveReceipt.applied[item.id].resourceAttached = true;
+          liveReceipt.context ||= explorationContextSnapshot(context);
+          completed.push(`${entry.name}：${applied.receipt.summary}`);
+        }
+        const liveReceipt = explorationBatchReceipt(record, entry);
+        if (single || options.attachedEffectOnly) {
+          updates.push({ entry, receipt: JSON.parse(JSON.stringify(liveReceipt)) });
+          continue;
+        }
+        context = explorationBatchContext(entry, card, record, liveReceipt);
+        const optionRules = explorationOptionRules();
+        if (card.key === "c4:9333" && optionRules && !liveReceipt.wishReceipt
+          && Number(record.explorationPersistentEffects?.c4?.stringWish?.remaining || 0) > 0) {
+          const badge = card.manual.find((item) => /^Lose 5 Cursed Derelict/.test(item.text))?.badge;
+          const penalty = context.conditionRules?.conditionMet({ type: "icon", badge }, context);
+          if (penalty === true || penalty === false) {
+            const plan = optionRules.wishPlan(record, context.cycleId, "", penalty, explorationResourceDataset(), { blockGains: context.blockGains });
+            const applied = optionRules.applyWish(record, plan);
+            record = applied.record;
+            explorationBatchReceipt(record, entry).wishReceipt = { ...applied.receipt, summary: applied.summary };
+            explorationBatchReceipt(record, entry).context ||= explorationContextSnapshot(context);
+            completed.push(`${entry.name}：${applied.summary}`);
+          }
+        }
+        const delayRules = explorationDelayRules();
+        context = explorationBatchContext(entry, card, record, explorationBatchReceipt(record, entry));
+        for (const item of delayRules?.delayed(card, context) || []) {
+          if (explorationDelayManaged(entry, card, context, item)) continue;
+          const delayReceipt = explorationBatchReceipt(record, entry);
+          const queued = delayRules.getQueue(record, context.cycleId).find((candidate) => candidate.receiptId === delayReceipt.delays[item.id]);
+          if (!queued || ["cancelled", "expired"].includes(queued.status)) delete delayReceipt.delays[item.id];
+          if (local.skipped[item.id] || delayReceipt.delays[item.id]) continue;
+          if (item.once) {
+            const existing = delayRules.getQueue(record, context.cycleId).find((queued) => queued.onceKey === `${context.cycleId}:${entry.id}:${item.id}` && ["waiting", "ready"].includes(queued.status));
+            if (existing) {
+              explorationBatchReceipt(record, entry).delays[item.id] = existing.receiptId;
+              continue;
+            }
+            if (!explorationBatchReceipt(record, entry).applied[item.id]) continue;
+          }
+          if (item.conditionState !== true || item.kind === "tech-disable") continue;
+          const applied = delayRules.schedule(record, context.cycleId, explorationDayNumber(entry.day), entry,
+            { card, descriptors: [item], context, sourceKey: explorationRoundId(entry) });
+          record = applied.record;
+          const delayedReceipt = explorationBatchReceipt(record, entry);
+          applied.receipts.forEach((queued) => { delayedReceipt.delays[item.id] = queued.receiptId; });
+          delayedReceipt.context ||= explorationContextSnapshot(context);
+          if (applied.changed) completed.push(`${entry.name}：${applied.summary}`);
+        }
+        updates.push({ entry, receipt: JSON.parse(JSON.stringify(explorationBatchReceipt(record, entry))) });
+      }
+      return { record, updates, completed };
+    }
+
+    // 「一键结算」已经跑过自动部分、正等玩家点「结算完毕」结束本轮探索。
+    // 不落盘：本轮一旦结束就复位，属于一次结算交互里的临时状态。
+    let explorationSettlePrepared = false;
+    function markExplorationSettlePrepared(value) {
+      if (explorationSettlePrepared === value) return;
+      explorationSettlePrepared = value;
+      renderFlow();
+    }
+
+    async function settleExplorationDraw() {
+      if (settleExplorationDraw.busy || mutateExplorationRecord.busy) {
+        window.alert("正在结算探索效果，请稍候。");
+        return;
+      }
+      const entries = ensureExplorationDrawState().activePiles.flat();
+      if (!entries.length) return;
+      const cycleId = currentCycleConfig().id;
+      settleExplorationDraw.busy = true;
+      try {
+        const result = await mutateExplorationRecord((record) => applyAutomaticExploration(record, entries),
+          `一键结算探索卡 D${state.day}：${entries.map((entry) => entry.name).join("、")}`);
+        result.updates.forEach(({ entry, receipt }) => syncExplorationBatchReceipt(entry, receipt));
+        const pending = pendingExplorationEffects();
+        const previous = state.exploration.lastSettlementByCycle[cycleId]?.completed || [];
+        state.exploration.lastSettlementByCycle[cycleId] = { at: Date.now(), completed: [...previous, ...result.completed], pending };
+        saveState();
+        if (!pending.length) {
+          endExplorationDraw();
+        } else {
+          // 还有手工活：不弹窗打断（待办就列在下面的结算明细里），只把按钮改成
+          // 「结算完毕」，让玩家自己决定什么时候点它结束本轮探索。
+          markExplorationSettlePrepared(true);
+        }
+      } catch (error) {
+        window.alert(`一键结算失败，当前牌组已保留：${error?.message || error}`);
+      } finally {
+        settleExplorationDraw.busy = false;
+        renderFlow();
+      }
+    }
+
+    // 「结算完毕」这一下：上一步的按钮文本已经把「还剩手工项」告诉过玩家，这里不再弹窗
+    // 二次提醒（endExplorationDraw 也不再问一次），直接结束本轮探索。
+    async function completeExplorationDraw() {
+      if (settleExplorationDraw.busy || mutateExplorationRecord.busy) {
+        window.alert("正在结算探索效果，请稍候。");
+        return;
+      }
+      markExplorationSettlePrepared(false);
+      endExplorationDraw({ skipPendingConfirm: true });
+    }
+
+    function explorationEffectDescriptors(entry, card, context) {
+      const effects = explorationEffectRules();
+      const rules = explorationResourceRules();
+      const descriptors = effects ? effects.describe(card, context, rules) : (card.manual || []).map((item, index) => ({
+        ...item, id: `manual:${index}`, effects: [], remainder: item.text,
+        conditionState: item.condition ? rules.conditionMet(item.condition, context) : (item.badge ? null : true),
+      }));
+      const conditional = window.ATO_EXPLORATION_CONDITIONS?.simpleConditionalEffects(card, context) || [];
+      conditional.push(...(explorationChoiceRules()?.automatic(card, context) || []).map(item => ({ ...item, automaticOperation: item.conditionState === true })));
+      if (card.key === "c4:9329") {
+        const plan = explorationOptionRules()?.duesPlan(context.record || {}, context.cycleId, explorationResourceDataset());
+        if (plan) conditional.push({ id: "choice:dues", text: "代缴资源：库存全部不足时自动结算替代效果", summary: plan.summary || plan.manualFallback || "请选择代缴资源",
+          manualIndexes: [0, 1, 2, 3, 4], dynamic: true, effects: plan.status === "ready" ? plan.effects : [],
+          automaticOperation: plan.status === "ready", conditionState: plan.status === "ready" ? true : plan.status === "choice" ? false : null,
+          ...(plan.status === "ready" ? { duesPlan: plan, removal: plan.removePermanent ? "permanent" : "remove" } : {}),
+          remainder: plan.status === "manual" ? plan.manualFallback : "" });
+      }
+      if (card.key === "c1:6400" && !conditional.length) {
+        // Dog Days is one sequential operation. Do not pay its Fate bonus on
+        // its own, then pay it again when missing track values become available.
+        const text = (card.manual || []).map((item) => `${item.badge ? `[${item.badge}] ` : ""}${item.text}`).join("；");
+        conditional.push({ id: "conditional:dog-days", dynamic: true, manualIndexes: [0, 1, 2], effects: [],
+          text: "坏日子：请补齐陌生人、船员和命运数值，或手动处理完整效果", summary: text,
+          remainder: text, conditionState: null });
+      }
+      const partialDogDays = [];
+      if (card.key === "c1:6400") {
+        const serverMarks = context.record?.explorationBatchReceipts?.[explorationRoundId(entry)];
+        const marks = serverMarks?.applied || explorationEffectState(entry).applied;
+        if (!marks["conditional:dog-days"]) {
+          for (const id of ["manual:0", "manual:1", "manual:2"]) {
+            if (marks[id]) {
+              const original = descriptors.find((item) => item.id === id);
+              if (original) partialDogDays.push({ ...original, conditionState: true, remainder: "", text: `旧版已结算部分：${original.text}` });
+            }
+          }
+          if (partialDogDays.length) conditional[0] = { ...conditional[0], effects: [], conditionState: null,
+            text: "坏日子：检测到旧版部分结算，请先撤销该部分，或手动处理剩余效果", summary: "避免重复获得命运奖励",
+            remainder: "请先撤销旧版部分结算，或确认已手动处理剩余效果" };
+        }
+      }
+      if (card.key === "c4:9340") {
+        const marks = context.record?.explorationBatchReceipts?.[explorationRoundId(entry)]?.applied || explorationEffectState(entry).applied;
+        if (!marks["conditional:weight-of-obligations"]) {
+          const partial = descriptors.filter(item => marks[item.id]);
+          if (partial.length) {
+            partialDogDays.push(...partial.map(item => ({ ...item, conditionState: true, remainder: "", text: `旧版已结算部分：${item.text}` })));
+            const warning = "检测到旧版部分结算，请先撤销该部分，或手动处理剩余效果";
+            conditional[0] = { ...conditional[0], effects: [], conditionState: null, text: "义务之重", summary: warning, remainder: warning };
+          }
+        }
+      }
+      const merchant = explorationOptionRules()?.merchant(card);
+      const wish = explorationOptionRules() && card.key === "c4:9333";
+      const managedChoices = explorationManagedChoices(entry, card, context);
+      const legacyRows = new Set(partialDogDays.map(item => item.id));
+      for (const item of [...conditional, ...managedChoices]) {
+        const saved = context.appliedEffects?.[item.id];
+        if (item.dynamic && saved?.descriptor && !saved.choiceId) Object.assign(item, saved.descriptor, { conditionState: true });
+        const legacyIds = explorationLegacyGroupIds(entry, item, context);
+        if (!legacyIds.length) continue;
+        if (conditional.includes(item)) {
+          Object.assign(item, { effects: [], resourceChanges: [], automaticOperation: false, conditionState: null,
+            summary: "旧版分项已处理，请先撤销或恢复旧分项，再结算完整规则",
+            remainder: "检测到旧版分项已处理，请先撤销或恢复旧分项，再结算完整规则；也可以手动处理剩余效果。" });
+          delete item.removal;
+        }
+        for (const id of legacyIds) {
+          const original = descriptors.find(row => row.id === id);
+          if (original && !legacyRows.has(id)) {
+            partialDogDays.push({ ...original, conditionState: true });
+            legacyRows.add(id);
+          }
+        }
+      }
+      for (const group of conditional) for (const index of group.blockedManualIndexes || []) {
+        const following = descriptors.find(item => item.id === `manual:${index}`);
+        if (following) {
+          following.requiresEffect = group.id;
+          if (group.remainder) following.requiresManual = group.id;
+        }
+      }
+      const delays = explorationDelayRules()?.delayed(card, context) || [];
+      const numericOnce = delays.filter(item => explorationNumericOnce(item, context, entry));
+      for (const once of numericOnce) {
+        const descriptor = descriptors.find(item => item.id === once.id);
+        const applied = context.appliedEffects?.[once.id];
+        const used = explorationDelayRules().getQueue(context.record || {}, context.cycleId)
+          .some(item => item.onceKey === `${context.cycleId}:${entry.id}:${once.id}` && ["waiting", "ready"].includes(item.status));
+        if (descriptor && used && !applied) Object.assign(descriptor, { effects: [], remainder: "", onceBlocked: true,
+          automaticStatus: "下次定时战斗前已经触发，本次不重复获得收益" });
+      }
+      const customIndexes = new Set([...(merchant?.manualIndexes || []), ...(merchant?.rewards || []).map(item => item.manualIndex), ...delays.filter(item => !numericOnce.includes(item)).flatMap((item) => item.manualIndexes || []), ...conditional.flatMap((item) => item.manualIndexes || []), ...managedChoices.flatMap(item => item.manualIndexes || [])]);
+      const unresolved = wish ? [] : Array.isArray(card.unresolvedEffects) ? card.unresolvedEffects
+        : (card.unresolved || []).map(text=>({text,condition:null,badge:""}));
+      unresolved.forEach((item, index) => descriptors.push({
+        id: `unresolved:${index}`, text: `资源需手动处理：${item.text}`, badge: item.badge || "", effects: [], remainder: item.text,
+        conditionState: item.condition ? rules.conditionMet(item.condition, context) : true,
+      }));
+      return [...descriptors.filter((item) => !customIndexes.has(Number(item.id.split(":")[1]))), ...partialDogDays,
+        ...conditional.filter(item => !context.appliedEffects?.[item.id]?.choiceId).map((item) => ({ ...item,
+          text: context.appliedEffects?.[item.id]?.descriptor ? item.text : `${item.text}：${item.summary || ""}`, badge: "", remainder: item.remainder || "" }))].map((item) => ({ ...item,
+        badge: context.conditionRules?.conditionFromBadge(item.badge, context.cycleId)?.label || item.badge,
+        automatic: item.onceBlocked || (card.key === "c4:9326" && item.text === "Do not gain any resources or Titans from this stack."),
+      })).map(item => explorationManualPlacement(item, context.appliedEffects?.[item.id])).filter((item) => (item.conditionState !== false || context.appliedEffects?.[item.id]) && !wish
+        && !(card.diplomacyMenu && !item.badge && /(?:外交关系结算一项效果|Resolve an effect based on your Diplomacy)/i.test(item.text)));
+    }
+
+    function pendingExplorationEffects() {
+      const cycleId = currentCycleConfig().id;
+      const piles = state.exploration?.drawStateByCycle?.[cycleId]?.activePiles || [];
+      const pending = [];
+      piles.flat().forEach((entry) => {
+        const card = explorationCardResources(entry.id);
+        if (!card) {
+          if (!explorationEffectState(entry).manual["missing-data"]) pending.push(`${entry.name}：暂无效果数据，请按卡面处理`);
+          return;
+        }
+        const context = explorationCardContext(entry, card);
+        const effects = explorationEffectState(entry);
+        if (card.diplomacyMenu && !explorationResourceRules().diplomacyItems(context).length) {
+          pending.push(`${entry.name}：外交关系未记录或未选择`);
+          return;
+        }
+        const plan = explorationResourceRules().plan(card, context);
+        if (!getExplorationSettlement(entry) && (plan.grants.length || plan.variants.some((variant) => variant.grants.length))) {
+          pending.push(`${entry.name}：${plan.status === "choice" ? "资源分支需选择或确认条件" : "资源未结算"}`);
+        }
+        explorationEffectDescriptors(entry, card, context).forEach((item) => {
+          if (item.automatic || effects.skipped[item.id]) return;
+          if (item.receiptMismatch) {
+            pending.push(`${entry.name}：旧版图标转录已更正，请撤销旧结算后重新结算此行`);
+            return;
+          }
+          const pendingRecord = explorationHasRecordOperation(item) && !effects.applied[item.id] && !((item.dynamic || !item.remainder) && effects.manual[item.id]);
+          const pendingManual = item.remainder && !effects.manual[item.id];
+          if (pendingRecord || pendingManual) pending.push(`${entry.name}：${item.badge ? `[${item.badge}] ` : ""}${item.displayText || item.text}`);
+        });
+        for (const item of explorationManagedChoices(entry, card, context)) {
+          if (explorationEffectDescriptors(entry, card, context).some(core => core.id === item.id && core.remainder)) continue;
+          if (item.conditionState !== false && !effects.applied[item.id] && !effects.manual[item.id] && !effects.skipped[item.id]) {
+            pending.push(`${entry.name}：${item.legacyIds.length ? "请先更正旧版分项结算" : item.conditionState === null ? "条件数值需补齐" : item.text}`);
+          }
+          if (effects.applied[item.id]?.manualPlacements?.length && !effects.manual[item.id]) pending.push(`${entry.name}：${explorationPlacementText(effects.applied[item.id].manualPlacements)}`);
+        }
+        const options = explorationOptionRules();
+        if (options?.merchant(card) && !context.blockResourceGains && !effects.merchantDone) pending.push(`${entry.name}：请选择交易方案与次数，或结束交易`);
+        if (!context.blockResourceGains) for (const reward of options?.merchant(card)?.rewards || []) {
+          const condition = explorationResourceRules().conditionMet(reward.condition, context);
+          if (condition !== false && !effects.applied[reward.id] && !effects.manual[reward.id] && !effects.skipped[reward.id]) {
+            pending.push(`${entry.name}：[${reward.badge}] 请选择商人奖励资源${condition === null ? "（条件需确认）" : ""}`);
+          }
+        }
+        if (options && card.key === "c4:9333" && !effects.wishReceipt) pending.push(`${entry.name}：${cachedArgoRecord?.explorationPersistentEffects?.c4?.stringWish?.remaining > 0 ? "还款条件数值未记录，需确认分支" : "请选择首次获得的资源并登记持续标记"}`);
+        (explorationDelayRules()?.delayed(card, context) || []).forEach((item) => {
+          if (explorationDelayManaged(entry, card, context, item)) return;
+          if (item.conditionState !== false && !effects.delays?.[item.id] && !effects.skipped[item.id]) pending.push(`${entry.name}：${item.once ? "请处理本次收益并登记次数限制" : (item.kind === "tech-disable" ? "需确认禁用条件及已解锁 AA 科技" : "需确认延迟效果的触发条件")} · ${item.once ? item.text : item.label}`);
+        });
+      });
+      return pending;
+    }
+
+    async function mutateExplorationRecord(mutator, logMessage) {
+      if (mutateExplorationRecord.busy) throw new Error("另一项探索效果正在写入，请稍候。");
+      if (typeof ownsDashboardWriteLease === "function" && !ownsDashboardWriteLease()) throw new Error("请先接管编辑再结算。");
+      mutateExplorationRecord.busy = true;
+      const shell = typeof document.querySelector === "function" ? document.querySelector("#appShell") : null;
+      const previousInert = Boolean(shell?.inert);
+      if (shell) shell.inert = true;
+      const profileId = archive.activeProfileId;
+      const cycleId = currentCycleConfig().id;
+      const accountId = sessionUser?.id || "";
+      const targetState = state;
+      const checkTarget = () => {
+        if (archive.activeProfileId !== profileId || currentCycleConfig().id !== cycleId || state !== targetState || (sessionUser?.id || "") !== accountId) {
+          throw new Error("活动档案或循环已切换，请返回原档案后重试。");
+        }
+      };
+      try {
+        let server = await readServerArgoRecord(profileId);
+        if (!server.available) throw new Error("读取不到记录表存档，效果未写入。");
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          checkTarget();
+          cachedArgoRecord = server.record;
+          const result = mutator(mergeArgoRecords(server.record, {}));
+          const record = result.record;
+          record.profileName ||= "阿尔戈号记录";
+          appendRecordSyncLog(record, logMessage, cycleId);
+          const written = await writeServerArgoRecord(record, server.revision, profileId, accountId);
+          if (!written.conflict) {
+            checkTarget();
+            if (archive.activeProfileId === profileId && currentCycleConfig().id === cycleId && state === targetState) cachedArgoRecord = record;
+            recordSyncChannel?.postMessage({ revision: written.revision });
+            return result;
+          }
+          server = await readServerArgoRecord(profileId);
+          if (!server.available) throw new Error("读取不到记录表存档，效果未写入。");
+        }
+        throw new Error("记录表被其他页面持续改动，请重试。");
+      } finally {
+        mutateExplorationRecord.busy = false;
+        if (shell) shell.inert = previousInert;
+      }
+    }
+
+    async function writeExplorationRecordEffects(entry, descriptors, context, titanLosses = [], revert = false) {
+      const rules = explorationEffectRules();
+      if (!rules) throw new Error("探索效果模块未加载，请刷新页面。");
+      const cycleId = currentCycleConfig().id;
+      const result = await mutateExplorationRecord((record) => {
+        explorationBatchReceipt(record, entry);
+        const reverted = [];
+        const clearedManual = new Set();
+        const undoEffect = id => {
+          if (clearedManual.has(id)) return;
+          clearedManual.add(id);
+          const ledger = explorationBatchReceipt(record, entry);
+          const card = explorationCardResources(entry.id);
+          const liveContext = explorationBatchContext(entry, card, record, ledger);
+          const currentItems = [...explorationEffectDescriptors(entry, card, liveContext), ...explorationManagedChoices(entry, card, liveContext)];
+          for (const dependent of currentItems) {
+            const saved = ledger.applied[dependent.id]?.descriptor;
+            if ((saved?.requiresEffect || dependent.requiresEffect) === id) undoEffect(dependent.id);
+          }
+          const applied = explorationBatchReceipt(record, entry).applied[id];
+          if (!applied) return;
+          record = revertExplorationOperation(record, applied);
+          delete explorationBatchReceipt(record, entry).applied[id];
+          reverted.push(id);
+          const delays = explorationDelayRules();
+          const queued = delays?.getQueue(record, cycleId).find(value => value.onceKey === `${cycleId}:${entry.id}:${id}`
+            && value.sourceKey === explorationRoundId(entry) && ["waiting", "ready"].includes(value.status));
+          if (queued) {
+            record = delays.cancel(record, queued.receiptId).record;
+            delete explorationBatchReceipt(record, entry).delays[id];
+          }
+        };
+        for (const item of descriptors) {
+          const ledger = explorationBatchReceipt(record, entry);
+          if (revert) {
+            if (!ledger.applied[item.id]) continue;
+            undoEffect(item.id);
+          } else {
+            if (ledger.applied[item.id]) continue;
+            const card = explorationCardResources(entry.id);
+            const liveContext = explorationBatchContext(entry, card, record, ledger);
+            const actual = explorationEffectDescriptors(entry, card, liveContext).find((candidate) => candidate.id === item.id);
+            if (!actual || !explorationHasRecordOperation(actual) || actual.conditionState === false || (actual.conditionState !== true && item.conditionState !== null)) throw new Error("条件数值或外交关系已变化，请按刷新后的效果重试。");
+            if (actual.requiresResource && !ledger.resource) throw new Error("请先选择本行的资源，附带收益会一并结算。");
+            if (actual.requiresEffect && !ledger.applied[actual.requiresEffect] && !explorationEffectState(entry).manual[actual.requiresEffect] || actual.requiresManual && !explorationEffectState(entry).manual[actual.requiresManual]) throw new Error("请先完成本卡前面的数值或事件效果。");
+            if ((actual.dynamic || !actual.remainder) && explorationEffectState(entry).manual[item.id]) throw new Error("该效果已标记手动完成，请先恢复待办。");
+            const change = applyExplorationOperation(record, entry, actual, liveContext, titanLosses);
+            record = change.record;
+            explorationBatchReceipt(record, entry).applied[item.id] = change.receipt;
+            if (actual.requiresResource) explorationBatchReceipt(record, entry).applied[item.id].resourceAttached = true;
+            explorationBatchReceipt(record, entry).context ||= explorationContextSnapshot(liveContext);
+          }
+        }
+        return { record, receipt: explorationBatchReceipt(record, entry), reverted, clearedManual: [...clearedManual] };
+      }, `${revert ? "撤销" : "结算"}探索卡记录表效果 D${entry.day} ${entry.name} #${entry.id}：${descriptors.map((item) => item.text).join("；")}`);
+      syncExplorationBatchReceipt(entry, result.receipt);
+      if (revert) {
+        const effects = explorationEffectState(entry);
+        effects.choices.autoSinglePaused ||= {};
+        result.reverted.forEach(id => { effects.choices.autoSinglePaused[id] = true; });
+        result.clearedManual.forEach(id => { delete effects.manual[id]; delete effects.skipped[id]; });
+        markExplorationSettlePrepared(false);
+      }
+      saveState();
+      renderFlow();
+    }
+
+    async function writeExplorationResourceChanges(changes, logMessage, mode = "apply", settlement = null) {
+      const rules = explorationResourceRules();
+      if (!rules) throw new Error("资源结算模块未加载，请刷新页面。");
+      if (!Array.isArray(changes) || !changes.length) return null;
+      const result = await mutateExplorationRecord((record) => {
+        const ledger = settlement ? explorationBatchReceipt(record, settlement.entry) : null;
+        if (ledger && (mode === "revert" ? !ledger.resource : ledger.resource)) return { record };
+        let actualChanges = changes;
+        let liveContext = null;
+        if (settlement && mode !== "revert") {
+          const card = explorationCardResources(settlement.entry.id);
+          liveContext = explorationBatchContext(settlement.entry, card, record, ledger);
+          const plan = rules.plan(card, liveContext);
+          const variant = plan.variants.find((item) => item.id === settlement.receipt.variant);
+          const grants = variant?.grants || (plan.status === "auto" ? plan.grants : null);
+          if (!grants) throw new Error("条件数值或外交关系已变化，请按刷新后的资源分支重试。");
+          actualChanges = rules.planChanges(explorationResourceDataset(), liveContext.cycleId, grants);
+          const signature = (items) => JSON.stringify(items.map(({ type, storageKey, amount, rareName }) => ({ type, storageKey, amount, rareName })));
+          if (signature(actualChanges) !== signature(changes)) throw new Error("条件数值或外交关系已变化，请按刷新后的资源分支重试。");
+        }
+        const current = isPlainObject(record.resources) ? record.resources : {};
+        record.resources = mode === "revert"
+          ? rules.revertChanges(current, ledger?.resource?.changes || changes)
+          : rules.applyChanges(current, actualChanges);
+        if (ledger) {
+          if (mode === "revert") {
+            for (const [id, applied] of Object.entries(ledger.applied)) {
+              if (!applied.resourceAttached) continue;
+              record = explorationEffectRules().revert(record, applied.changes || [], { stats: explorationDashboardTracks(record),
+                minimums: { knowledge: typeof argoKnowledgeStart === "function" ? argoKnowledgeStart(cycleId) : 0 } });
+              delete explorationBatchReceipt(record, settlement.entry).applied[id];
+            }
+            delete explorationBatchReceipt(record, settlement.entry).resource;
+          }
+          else {
+            const actual = actualChanges.map((change) => change.type === "add" ? { ...change,
+              amount: Number(record.resources[change.storageKey] || 0) - Number(current[change.storageKey] || 0),
+            } : { ...change });
+            ledger.resource = { ...settlement.receipt, changes: actual, summary: rules.describeChanges(actual), context: explorationContextSnapshot(liveContext) };
+            ledger.context ||= ledger.resource.context;
+            record = applyAutomaticExploration(record, [settlement.entry], { attachedEffectOnly: true }).record;
+          }
+        }
+        return { record };
+      }, logMessage);
+      return result.record;
+    }
+
+    function createExplorationOptionTools(entry, card, context) {
+      const rules = explorationOptionRules();
+      if (!rules) return null;
+      const merchant = rules.merchant(card);
+      const wish = card.key === "c4:9333";
+      if (!merchant && !wish) return null;
+      const cycleId = currentCycleConfig().id;
+      const effects = explorationEffectState(entry);
+      const roundId = explorationRoundId(entry);
+      const box = document.createElement("div");
+      box.className = "exploration-option-tools";
+      const status = document.createElement("div");
+      status.className = "exploration-settle-status";
+      const controls = document.createElement("div");
+      controls.className = "exploration-effect-controls";
+      box.append(status, controls);
+      const button = (label, callback, parent = controls) => {
+        const node = document.createElement("button");
+        node.type = "button";
+        node.textContent = label;
+        node.addEventListener("click", callback);
+        parent.appendChild(node);
+        return node;
+      };
+      const run = async (mutator, onSuccess, message) => {
+        box.querySelectorAll("button, input, select").forEach((node) => { node.disabled = true; });
+        try {
+          const result = await mutateExplorationRecord(mutator, `${message} D${entry.day} ${entry.name} #${entry.id}`);
+          onSuccess(result);
+          effects.context ||= explorationContextSnapshot(context);
+          saveState();
+          renderFlow();
+        } catch (error) {
+          box.querySelectorAll("button, input, select").forEach((node) => { node.disabled = false; });
+          window.alert(`${message}失败：${error?.message || error}`);
+        }
+      };
+      if (merchant) {
+        const count = Number(cachedArgoRecord?.explorationTradeRounds?.[roundId]?.count || 0);
+        status.textContent = `商人交易 ${count}/${merchant.limit}${effects.merchantDone ? " · 已结束" : ""}`;
+        if (context.blockResourceGains) {
+          status.textContent = "本堆禁止获得资源，无法兑换资源。";
+          return box;
+        }
+        const select = document.createElement("select");
+        select.setAttribute("aria-label", "商人兑换项目");
+        merchant.trades.forEach((trade) => {
+          const option = document.createElement("option");
+          option.value = trade.id;
+          option.textContent = rules.tradeLabel(trade, cycleId, cachedArgoRecord || {}, explorationResourceDataset());
+          select.appendChild(option);
+        });
+        select.value = merchant.trades.some(item => item.id === effects.choices.merchantTrade) ? effects.choices.merchantTrade : merchant.trades[0]?.id || "";
+        const stock = document.createElement("div");
+        stock.className = "exploration-settle-status";
+        stock.setAttribute("aria-live", "polite");
+        const refreshStock = () => {
+          effects.choices.merchantTrade = select.value;
+          const trade = merchant.trades.find(item => item.id === select.value);
+          stock.textContent = trade ? rules.tradeLabel(trade, cycleId, cachedArgoRecord || {}, explorationResourceDataset()) : "";
+        };
+        select.addEventListener("change", refreshStock);
+        refreshStock();
+        box.appendChild(stock);
+        const times = document.createElement("input");
+        times.type = "number";
+        times.min = "1";
+        times.max = String(Math.max(1, merchant.limit - count));
+        times.value = "1";
+        times.setAttribute("aria-label", "兑换次数");
+        times.style.width = "55px";
+        controls.append(select, times);
+        const exchange = button("执行兑换", () => {
+          const trade = merchant.trades.find((item) => item.id === select.value);
+          const quantity = Number(times.value);
+          void run((record) => rules.executeTrade(record, cycleId, card.key, trade, quantity, roundId, explorationResourceDataset()), (result) => {
+            (effects.trades ||= []).push(result.receipt);
+            effects.merchantDone = Number(result.record.explorationTradeRounds[roundId].count) >= merchant.limit;
+          }, "商人兑换");
+        });
+        exchange.disabled = count >= merchant.limit || Boolean(effects.merchantDone);
+        button(effects.merchantDone ? "继续交易" : "结束交易", () => {
+          if (mutateExplorationRecord.busy || !ownsDashboardWriteLease()) return;
+          effects.merchantDone = !effects.merchantDone;
+          saveState(); renderFlow();
+        });
+        if ((effects.trades || []).length) {
+          button("撤销上次兑换", () => {
+            const receipt = effects.trades[effects.trades.length - 1];
+            void run((record) => ({ record: rules.undoTrade(record, receipt) }), () => {
+              effects.trades.pop(); effects.merchantDone = false;
+            }, "撤销商人兑换");
+          });
+        }
+        for (const reward of merchant.rewards) {
+          const applied = effects.applied[reward.id];
+          const condition = explorationResourceRules().conditionMet(reward.condition, context);
+          if (condition === false && !applied && !effects.manual[reward.id] && !effects.skipped[reward.id]) continue;
+          const group = document.createElement("div");
+          group.className = "exploration-option-tools";
+          const label = document.createElement("div");
+          label.className = "exploration-settle-status";
+          label.textContent = `[${reward.badge}] ${reward.text}`;
+          group.appendChild(label);
+          box.appendChild(group);
+          const mark = (field, value) => {
+            if (mutateExplorationRecord.busy || !ownsDashboardWriteLease()) return;
+            if (value) effects[field][reward.id] = true;
+            else delete effects[field][reward.id];
+            saveState(); renderFlow();
+          };
+          const settle = (resource, revert = false) => void run(record => {
+            const ledger = explorationBatchReceipt(record, entry);
+            if (revert) {
+              if (ledger.applied[reward.id]?.kind === "merchant-reward") {
+                record = rules.undoMerchantReward(record, ledger.applied[reward.id]);
+                delete explorationBatchReceipt(record, entry).applied[reward.id];
+              }
+            } else if (!ledger.applied[reward.id]) {
+              if (effects.manual[reward.id] || effects.skipped[reward.id]) throw new Error("请先恢复商人奖励待办。");
+              const live = explorationBatchContext(entry, card, record, ledger);
+              const currentCondition = explorationResourceRules().conditionMet(reward.condition, live);
+              if (live.blockResourceGains || currentCondition === false || (currentCondition === null && condition !== null)) throw new Error("奖励条件已变化，请重新读取记录表。");
+              const result = rules.claimMerchantReward(record, cycleId, card.key, reward.id, resource, explorationResourceDataset());
+              record = result.record;
+              explorationBatchReceipt(record, entry).applied[reward.id] = result.receipt;
+              explorationBatchReceipt(record, entry).context ||= explorationContextSnapshot(live);
+            }
+            return { record, receipt: explorationBatchReceipt(record, entry) };
+          }, result => {
+            syncExplorationBatchReceipt(entry, result.receipt);
+            if (revert) markExplorationSettlePrepared(false);
+          }, revert ? "撤销商人奖励" : "领取商人奖励");
+          if (applied) {
+            label.textContent += ` · 已领取：${applied.summary}`;
+            button("撤销奖励资源", () => settle("", true), group);
+          } else if (effects.manual[reward.id] || effects.skipped[reward.id]) {
+            label.textContent += effects.manual[reward.id] ? " · 手动效果已处理" : " · 已确认不适用";
+            button("恢复待办", () => mark(effects.manual[reward.id] ? "manual" : "skipped", false), group);
+          } else {
+            const choice = document.createElement("select");
+            choice.setAttribute("aria-label", "商人奖励资源");
+            const placeholder = document.createElement("option");
+            placeholder.value = ""; placeholder.textContent = "选择奖励资源…"; choice.appendChild(placeholder);
+            const resources = explorationResourceDataset().cycles[cycleId].resources;
+            for (const resource of reward.choices) {
+              const option = document.createElement("option"); option.value = resource;
+              option.textContent = `${resources[resource].zh}（库存 ${rules.resourceStock(cachedArgoRecord || {}, cycleId, resource, explorationResourceDataset()) ?? "?"}）`;
+              choice.appendChild(option);
+            }
+            choice.value = ""; group.appendChild(choice);
+            button(condition === null ? "确认条件并领取资源" : "领取奖励资源", () => {
+              if (!choice.value) { window.alert("请先选择商人奖励资源。"); return; }
+              settle(choice.value);
+            }, group);
+            button("已手动处理", () => mark("manual", true), group);
+            if (condition === null) button("不适用", () => mark("skipped", true), group);
+          }
+        }
+      } else {
+        if (effects.wishReceipt) {
+          status.textContent = `持续标记已结算：${effects.wishReceipt.summary || "String Wish"}`;
+          button("撤销持续标记结算", () => void run((record) => {
+            const ledger = explorationBatchReceipt(record, entry);
+            if (!ledger.wishReceipt) return { record };
+            const next = rules.undoWish(record, ledger.wishReceipt);
+            delete explorationBatchReceipt(next, entry).wishReceipt;
+            return { record: next };
+          }, () => {
+            delete effects.wishReceipt;
+          }, "撤销持续标记结算"));
+          return box;
+        }
+        const current = cachedArgoRecord?.explorationPersistentEffects?.c4?.stringWish;
+        status.textContent = current?.remaining > 0 ? `String Wish · 剩余 ${current.remaining} 次还款` : "String Wish · 选择本次获得的资源";
+        const select = document.createElement("select");
+        select.setAttribute("aria-label", "String Wish资源");
+        ["cursedDerelict", "imperialScroll"].forEach((resource) => {
+          const option = document.createElement("option");
+          option.value = resource;
+          option.textContent = rules.wishPlan(cachedArgoRecord || {}, cycleId, resource, false, explorationResourceDataset(), { blockGains: context.blockResourceGains }).summary;
+          select.appendChild(option);
+        });
+        select.value = current?.remaining > 0 ? current.resource : "cursedDerelict";
+        select.disabled = Boolean(current?.remaining > 0);
+        controls.appendChild(select);
+        const penaltyBadge = card.manual.find((item) => /^Lose 5 Cursed Derelict/.test(item.text))?.badge;
+        const penaltyState = context.conditionRules?.conditionMet({ type: "icon", badge: penaltyBadge }, context) ?? null;
+        if (current?.remaining > 0 && penaltyState === null) {
+          const penalty = button("按高阈值分支还款", () => settleWish(true));
+          penalty.title = "卡面命运 8+ 或另一图标 4+ 条件成立时使用加重扣费。";
+        }
+        const settleWish = (penalty) => void run((record) => {
+          const ledger = explorationBatchReceipt(record, entry);
+          if (ledger.wishReceipt) return { record, receipt: ledger.wishReceipt, summary: ledger.wishReceipt.summary };
+          const liveContext = { ...context, ...(context.conditionRules?.contextForRecord(record, cycleId) || {}) };
+          const livePenalty = context.conditionRules?.conditionMet({ type: "icon", badge: penaltyBadge }, liveContext);
+          if (penaltyState !== null && (livePenalty === null || livePenalty === undefined)) throw new Error("还款条件数值已变化，请核对记录表后重试。");
+          const plan = rules.wishPlan(record, cycleId, select.value, livePenalty ?? penalty, explorationResourceDataset(), { blockGains: context.blockResourceGains });
+          const result = rules.applyWish(record, plan);
+          explorationBatchReceipt(result.record, entry).wishReceipt = { ...result.receipt, summary: result.summary };
+          explorationBatchReceipt(result.record, entry).context ||= explorationContextSnapshot(context);
+          return result;
+        }, (result) => { effects.wishReceipt = { ...result.receipt, summary: result.summary }; }, "持续标记结算");
+        button(current?.remaining > 0 ? (penaltyState === null ? "按普通分支还款" : "自动还款") : "获得资源并登记五次标记", () => settleWish(penaltyState === true));
+      }
+      return box;
+    }
+
+    function createExplorationEffectList(entry, card, context) {
+      const items = explorationEffectDescriptors(entry, card, context);
+      if (!items.length) return null;
+      const effectState = explorationEffectState(entry);
+      const wrapper = document.createElement("div");
+      const list = document.createElement("ul");
+      list.className = "exploration-settle-manual";
+      const refresh = () => { saveState(); renderFlow(); };
+      const run = async (descriptors, titanLosses = [], revert = false) => {
+        list.querySelectorAll("button, select").forEach((control) => { control.disabled = true; });
+        try {
+          await writeExplorationRecordEffects(entry, descriptors, context, titanLosses, revert);
+        } catch (error) {
+          list.querySelectorAll("button, select").forEach((control) => { control.disabled = false; });
+          window.alert(`效果${revert ? "撤销" : "结算"}失败：${error?.message || error}`);
+          renderFlow();
+        }
+      };
+      const mark = (field, id, value) => {
+        if (mutateExplorationRecord.busy) return;
+        if (typeof ownsDashboardWriteLease === "function" && !ownsDashboardWriteLease()) return;
+        if (value) effectState[field][id] = true;
+        else delete effectState[field][id];
+        effectState.context ||= explorationContextSnapshot(context);
+        refresh();
+      };
+      // 已知且无需玩家选择的部分用绿色按钮；未知条件和手动部分才进入黄色待办。
+      const automaticItem = (item) => !item.receiptMismatch && (item.automatic
+        || (explorationHasRecordOperation(item) && (item.conditionState === true || effectState.applied[item.id])
+          && explorationAutomaticTitanLosses(cachedArgoRecord || {}, item) !== null));
+      const directItem = (item) => automaticItem(item) && !item.automatic && item.conditionState === true
+        && (!item.requiresResource || getExplorationSettlement(entry))
+        && (!item.requiresEffect || effectState.applied[item.requiresEffect] || effectState.manual[item.requiresEffect])
+        && (!item.requiresManual || effectState.manual[item.requiresManual])
+        && !effectState.applied[item.id] && !effectState.skipped[item.id]
+        && !((item.dynamic || !item.remainder) && effectState.manual[item.id]);
+      const direct = items.filter(directItem);
+      const automatic = items.filter(automaticItem);
+      automatic.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "exploration-settle-status";
+        const applied = effectState.applied[item.id];
+        const summary = item.displayText || item.text;
+        if (item.badge) {
+          const condition = document.createElement("div");
+          condition.textContent = `[${item.badge}]`;
+          row.appendChild(condition);
+        }
+        const result = document.createElement("strong");
+        result.textContent = item.automatic ? item.automaticStatus || "已应用整堆限制" : applied ? `已结算：${applied.summary || "数值未变化"}`
+          : effectState.skipped[item.id] ? "已确认不适用" : effectState.manual[item.id] && !item.remainder ? "已手动处理"
+          : item.requiresEffect && !effectState.applied[item.requiresEffect] && !effectState.manual[item.requiresEffect] ? `先结算前序效果：${summary}`
+          : item.requiresManual && !effectState.manual[item.requiresManual] ? `先处理前序事件：${summary}`
+          : item.requiresResource && !getExplorationSettlement(entry) ? `选择资源时一并结算：${summary}` : summary;
+        row.appendChild(result);
+        if (applied || effectState.skipped[item.id] || (effectState.manual[item.id] && !item.remainder)) {
+          const actions = document.createElement("div");
+          actions.className = "exploration-settle-actions";
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "secondary";
+          button.textContent = applied ? "撤销记录表效果" : "恢复待办";
+          button.addEventListener("click", () => applied ? void run([item], [], true)
+            : mark(effectState.skipped[item.id] ? "skipped" : "manual", item.id, false));
+          actions.appendChild(button);
+          row.appendChild(actions);
+        }
+        wrapper.appendChild(row);
+      });
+      const plan = explorationResourceRules().plan(card, context);
+      if (direct.length && !(plan.status === "auto" && plan.grants.length && !getExplorationSettlement(entry))) {
+        const row = document.createElement("div");
+        row.className = "exploration-settle-actions";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "自动结算";
+        button.title = direct.map((item) => item.text).join("；");
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try { await settleExplorationCard(entry); }
+          catch (error) { button.disabled = false; window.alert(`自动结算失败：${error?.message || error}`); renderFlow(); }
+        });
+        row.appendChild(button);
+        wrapper.appendChild(row);
+      }
+      items.filter(item => !automaticItem(item) || item.remainder).forEach((item) => {
+        const row = document.createElement("li");
+        row.textContent = `${item.badge ? `[${item.badge}] ` : ""}${automaticItem(item) ? item.remainder : item.displayText || item.text}`;
+        const controls = document.createElement("div");
+        controls.className = "exploration-effect-controls";
+        const status = document.createElement("span");
+        const applied = effectState.applied[item.id];
+        const manualDynamic = Boolean((item.dynamic || !item.remainder) && effectState.manual[item.id]);
+        // 已经并进「结算记录表效果」的条目不再给单个按钮。
+        const inDirectBatch = automaticItem(item);
+        if (item.automatic) status.textContent = "已应用整堆限制";
+        else if (effectState.skipped[item.id]) status.textContent = "已确认不适用";
+        else if (automaticItem(item) && item.remainder) status.textContent = effectState.manual[item.id] ? "手动效果已处理" : "待手动处理";
+        else if (manualDynamic) status.textContent = "手动效果已处理";
+        else if (applied && item.receiptMismatch) status.textContent = `旧版结算需更正：${applied.summary || "旧图标记录"}。请先撤销再重新结算。`;
+        else if (applied) status.textContent = `${applied.automaticSingle ? "已自动结算" : "记录表已结算"}：${applied.summary || "数值未变化"}`;
+        else if (item.blocked && !item.effects.length) status.textContent = "本堆禁止该项收益";
+        else status.textContent = item.requiresResource && !getExplorationSettlement(entry) ? "选择资源时一并结算" : item.conditionState === null ? "条件需确认" : "待处理";
+        controls.appendChild(status);
+        const addButton = (text, callback) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "secondary";
+          button.textContent = text;
+          button.addEventListener("click", callback);
+          controls.appendChild(button);
+        };
+        if (effectState.skipped[item.id]) {
+          addButton("恢复待办", () => mark("skipped", item.id, false));
+        } else if (!item.automatic) {
+          if (applied && !automaticItem(item)) addButton("撤销记录表效果", () => void run([item], [], true));
+          else if (item.effects.length && !manualDynamic && !inDirectBatch && (!item.requiresResource || getExplorationSettlement(entry))) {
+            const losses = Math.max(0, -item.effects.filter((effect) => effect.type === "titan" && effect.amount < 0)
+              .reduce((sum, effect) => sum + effect.amount, 0));
+            const titans = cachedArgoRecord?.titans || [];
+            const total = titans.reduce((sum, titan) => sum + Math.max(0, Number(titan.count || 1)), 0);
+            const preferred = explorationEffectRules().dreamwalkerLosses(cachedArgoRecord || {}, losses);
+            const preferredIds = new Set(preferred.map(choice => choice.id));
+            const preferredCount = preferred.reduce((sum, choice) => sum + choice.count, 0);
+            const selectors = [];
+            if (preferredCount) {
+              const hint = document.createElement("span");
+              hint.textContent = `优先扣除梦行者 ${preferredCount}，其余泰坦请在需要时选择。`;
+              controls.appendChild(hint);
+            }
+            const automaticLosses = explorationAutomaticTitanLosses(cachedArgoRecord || {}, item);
+            const choiceCount = automaticLosses === null ? Math.min(losses, total) - preferredCount : 0;
+            for (let index = 0; index < choiceCount; index += 1) {
+              const select = document.createElement("select");
+              select.setAttribute("aria-label", `失去的第 ${index + 1} 只泰坦`);
+              const placeholder = document.createElement("option");
+              placeholder.value = "";
+              placeholder.textContent = "选择失去的泰坦…";
+              select.appendChild(placeholder);
+              titans.filter(titan => !preferredIds.has(titan.id)).forEach((titan) => {
+                const option = document.createElement("option");
+                option.value = titan.id;
+                option.textContent = `${titan.name}（${titan.count || 1}）${titan.crippled ? " · 残废" : ""}`;
+                select.appendChild(option);
+              });
+              selectors.push(select);
+              controls.appendChild(select);
+            }
+            if (losses) addButton("刷新泰坦列表", () => void refreshCachedArgoRecord());
+            addButton(item.conditionState === null ? "确认条件成立并结算" : "应用到记录表", () => {
+              if (selectors.some((select) => !select.value)) {
+                window.alert("请先选择要失去的泰坦。");
+                return;
+              }
+              void run([item], selectors.map((select) => ({ id: select.value, count: 1 })));
+            });
+          }
+          if (item.remainder) {
+            if (applied && !automaticItem(item)) {
+              const remainder = document.createElement("span");
+              remainder.textContent = `其余效果：${item.remainder}`;
+              controls.appendChild(remainder);
+            }
+            const handled = Boolean(effectState.manual[item.id]);
+            addButton(handled ? "恢复手动待办" : item.dynamic ? (applied ? "已处理其余效果" : "已手动处理完整效果") : "已手动处理", () => mark("manual", item.id, !handled));
+            if (handled) {
+              const done = document.createElement("span");
+              done.textContent = "手动效果已处理";
+              controls.appendChild(done);
+            }
+          }
+          if (manualDynamic && !item.remainder) addButton("恢复手动待办", () => mark("manual", item.id, false));
+          if (item.conditionState === null && !applied && !effectState.manual[item.id]) {
+            addButton("不适用", () => mark("skipped", item.id, true));
+          }
+        }
+        row.appendChild(controls);
+        list.appendChild(row);
+      });
+      if (list.children.length) wrapper.appendChild(list);
+      return wrapper;
+    }
+
+    function createExplorationChoiceTools(entry, card, context) {
+      const items = explorationManagedChoices(entry, card, context);
+      const local = explorationEffectState(entry);
+      const core = explorationEffectDescriptors(entry, card, context);
+      const box = document.createElement("div");
+      const mark = (id, value) => {
+        if (mutateExplorationRecord.busy || !ownsDashboardWriteLease()) return;
+        if (value) local.manual[id] = true;
+        else delete local.manual[id];
+        saveState(); renderFlow();
+      };
+      for (const item of items) {
+        const applied = local.applied[item.id];
+        if (applied && !applied.choiceId) continue;
+        if (!applied && (item.conditionState === false || core.some(value => value.id === item.id && value.remainder))) continue;
+        const row = document.createElement("div");
+        row.className = applied ? "exploration-settle-status" : "exploration-settle-manual";
+        const text = document.createElement(applied ? "strong" : "span");
+        text.textContent = applied ? `已结算：${applied.summary}` : local.manual[item.id] ? "本项已手动处理" : item.text;
+        row.appendChild(text);
+        const controls = document.createElement("div");
+        controls.className = applied ? "exploration-settle-actions" : "exploration-effect-controls";
+        const addButton = (label, action) => {
+          const button = document.createElement("button");
+          button.type = "button"; button.className = "secondary"; button.textContent = label;
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+            try { await action(); }
+            catch (error) { button.disabled = false; window.alert(`选择结算失败：${error?.message || error}`); renderFlow(); }
+          });
+          controls.appendChild(button);
+          return button;
+        };
+        if (applied) {
+          addButton("撤销选择结算", () => writeExplorationRecordEffects(entry, [item], context, [], true));
+          if (applied.manualPlacements?.length) {
+            const placement = document.createElement("div");
+            placement.className = "exploration-settle-manual";
+            placement.textContent = local.manual[item.id] ? "手动放置已完成" : explorationPlacementText(applied.manualPlacements);
+            row.appendChild(placement);
+            addButton(local.manual[item.id] ? "恢复放置待办" : "已手动放置", () => mark(item.id, !local.manual[item.id]));
+          }
+        }
+        else if (local.manual[item.id]) addButton("恢复待办", () => mark(item.id, false));
+        else if (item.legacyIds.length) {
+          const hint = document.createElement("div");
+          hint.textContent = "旧版分项已有处理记录，请先撤销或恢复旧分项，再使用这些选项。";
+          row.appendChild(hint);
+          addButton("已完整手动处理", () => mark(item.id, true));
+        } else if (item.requiresEffect && !local.applied[item.requiresEffect] && !local.manual[item.requiresEffect]
+          || item.requiresManual && !local.manual[item.requiresManual]) {
+          const hint = document.createElement("div");
+          hint.textContent = item.requiresManual ? "先处理本卡特殊事件并标记完成，再确认此分支。" : "先结算本卡前面的地图或数值效果，再确认此分支。";
+          row.appendChild(hint);
+        } else if (item.conditionState !== true) {
+          const hint = document.createElement("div");
+          hint.textContent = item.duesPlan?.manualFallback || "条件数值未填齐，请补齐记录表后重新读取。";
+          row.appendChild(hint);
+          addButton("重新读取记录表", () => refreshCachedArgoRecord());
+          addButton("已手动处理", () => mark(item.id, true));
+        } else {
+          if (item.duesPlan) {
+            const stocks = document.createElement("div");
+            stocks.textContent = item.duesPlan.requirements.map(value => value.label).join(" / ");
+            row.appendChild(stocks);
+          }
+          const select = document.createElement("select");
+          select.setAttribute("aria-label", "探索卡结算选项");
+          const placeholder = document.createElement("option");
+          placeholder.value = ""; placeholder.textContent = "请选择…"; select.appendChild(placeholder);
+          for (const choice of item.choices) {
+            const option = document.createElement("option");
+            option.value = choice.id; option.textContent = choice.label;
+            option.disabled = Boolean(choice.disabled || choice.blocked);
+            select.appendChild(option);
+          }
+          controls.appendChild(select);
+          const button = addButton("选择后结算", () => writeExplorationChoice(entry, item.id, select.value, item.duesPlan || null));
+          button.disabled = true;
+          select.addEventListener("change", () => {
+            const selected = item.choices.find(choice => choice.id === select.value);
+            button.disabled = Boolean(!selected || selected.disabled || selected.blocked);
+          });
+          if (item.blocked) {
+            const hint = document.createElement("span");
+            hint.textContent = "本牌堆禁止该项收益，可选择不接受。";
+            controls.appendChild(hint);
+          }
+        }
+        row.appendChild(controls); box.appendChild(row);
+      }
+      return box.children.length ? box : null;
+    }
+
+    function createExplorationSettleBlock(entry, selectedFaction = "", selectedDiplomacy = null) {
       const rules = explorationResourceRules();
       const card = explorationCardResources(entry.id);
-      if (!rules || !card || card.kind === rules.KIND_NONE) return null;
+      if (!rules) return null;
+      if (!card) {
+        const box = document.createElement("div");
+        box.className = "exploration-settle";
+        const text = document.createElement("div");
+        text.textContent = "暂无效果数据，请按卡面处理。";
+        const done = document.createElement("button");
+        const effects = explorationEffectState(entry);
+        done.type = "button";
+        done.textContent = effects.manual["missing-data"] ? "恢复手动待办" : "已手动处理";
+        done.addEventListener("click", () => {
+          if (mutateExplorationRecord.busy || !ownsDashboardWriteLease()) return;
+          effects.manual["missing-data"] = !effects.manual["missing-data"];
+          saveState(); renderFlow();
+        });
+        box.append(text, done);
+        return box;
+      }
 
       const cycleId = currentCycleConfig().id;
       const block = document.createElement("div");
@@ -7874,7 +9645,12 @@
       block.append(status, actions);
 
       const saved = getExplorationSettlement(entry);
-      const kindLabel = card.kind === rules.KIND_RESOURCE_ONLY ? "纯资源卡" : "含其它效果";
+      const savedEffects = explorationEffectState(entry);
+      const frozenDiplomacy = savedEffects.context && rules.diplomacyItems(savedEffects.context).length > 0;
+      if (selectedFaction && !frozenDiplomacy) savedEffects.choices.diplomacyFaction = selectedFaction;
+      if (selectedDiplomacy !== null && !frozenDiplomacy) savedEffects.choices.diplomacyBonus = selectedDiplomacy;
+      selectedFaction ||= savedEffects.context?.diplomacyFaction || saved?.context?.diplomacyFaction || savedEffects.choices.diplomacyFaction || "";
+      const kindLabel = card.kind === rules.KIND_RESOURCE_ONLY ? "纯资源卡" : (card.kind === rules.KIND_NONE ? "卡牌效果" : "含其它效果");
       const localFactions = currentMapFactions().filter((id) => id && id !== "none");
       const needsDiplomacy = [...(card.grants || []), ...(card.manual || [])]
         .some((item) => item.condition?.type === "diplomacy");
@@ -7893,8 +9669,11 @@
           select.appendChild(option);
         });
         select.value = localFactions.includes(selectedFaction) ? selectedFaction : "";
+        select.disabled = Boolean(frozenDiplomacy);
         select.addEventListener("change", () => {
           if (localFactions.includes(select.value)) {
+            savedEffects.choices.diplomacyFaction = select.value;
+            saveState();
             block.replaceWith(createExplorationSettleBlock(entry, select.value));
           }
         });
@@ -7904,21 +9683,50 @@
           return block;
         }
       }
-      // Only computed for an unsettled card: the plan drives both the button and
-      // the list of effects the player still has to resolve by hand.
-      const planInfo = saved ? { plan: null } : { plan: rules.plan(card, explorationSettlementContext(card, selectedFaction)) };
-      const manualList = (items) => {
-        const list = items.filter((item) => item?.text);
-        if (!list.length) return null;
-        const ul = document.createElement("ul");
-        ul.className = "exploration-settle-manual";
-        list.forEach((item) => {
-          const li = document.createElement("li");
-          li.textContent = item.badge ? `[${item.badge}] ${item.text}` : item.text;
-          ul.appendChild(li);
+      let context = explorationCardContext(entry, card, selectedFaction);
+      if (card.diplomacyMenu && !context.diplomacy.length) {
+        const recordLink = document.createElement("a");
+        recordLink.className = "secondary";
+        recordLink.href = `./record/index.html?cycle=${encodeURIComponent(cycleId)}`;
+        recordLink.target = "_blank";
+        recordLink.rel = "noopener";
+        recordLink.textContent = "填写外交记录";
+        const reload = document.createElement("button");
+        reload.type = "button";
+        reload.textContent = "重新读取记录表";
+        reload.addEventListener("click", () => void refreshCachedArgoRecord());
+        actions.append(recordLink, reload);
+        const fallback = document.createElement("details");
+        const fallbackTitle = document.createElement("summary");
+        fallbackTitle.textContent = "临时指定关系（记录未填写时）";
+        fallback.appendChild(fallbackTitle);
+        const select = document.createElement("select");
+        select.setAttribute("aria-label", "探索卡适用外交关系");
+        const choices = [["", "请选择外交关系…"], [2, "Allied · 结盟"], [1, "Friendly · 友善"], [0, "Neutral · 中立"], [-1, "Unfriendly · 不友善"], [-2, "Denounced · 谴责"], [-3, cycleId === "c5" ? "Aligned with Nemesis · 与宿敌结盟" : "At War · 开战"]];
+        choices.forEach(([value, label]) => {
+          const option = document.createElement("option");
+          option.value = String(value);
+          option.textContent = label;
+          select.appendChild(option);
         });
-        return ul;
-      };
+        select.value = selectedDiplomacy === null ? "" : String(selectedDiplomacy);
+        select.addEventListener("change", () => {
+          if (select.value === "") delete savedEffects.choices.diplomacyBonus;
+          else savedEffects.choices.diplomacyBonus = Number(select.value);
+          saveState();
+          block.replaceWith(createExplorationSettleBlock(entry, selectedFaction, select.value === "" ? null : Number(select.value)));
+        });
+        fallback.appendChild(select);
+        actions.appendChild(fallback);
+        if (selectedDiplomacy === null) {
+          status.textContent = `${kindLabel} · ${mapFactionLabel(cycleId, card.diplomacyFaction || selectedFaction, -1)}：未记录外交关系（记录表未填写数值）。填写后会自动读取并只结算对应关系。`;
+          return block;
+        }
+        const id = card.diplomacyFaction || selectedFaction || context.diplomacyFactions[0] || "chosen";
+        context = { ...context, diplomacyFaction: id, diplomacyFactions: [id], diplomacy: [{ id, bonus: selectedDiplomacy,
+          label: mapFactionLabel(cycleId, id, -1), statusLabel: choices.find(([value]) => value === selectedDiplomacy)?.[1] || "" }] };
+      }
+      const planInfo = { plan: rules.plan(card, context) };
 
       const setBusy = (busy, message) => {
         actions.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
@@ -7932,17 +9740,17 @@
         undoButton.className = "secondary";
         undoButton.textContent = "撤销结算";
         undoButton.addEventListener("click", async () => {
-          const current = getExplorationSettlement(entry);
+          const settlement = explorationSettlementStore(entry);
+          const current = settlement.store[settlement.key];
           if (!current?.changes?.length) return;
           setBusy(true, "正在撤销…");
           try {
-            await writeExplorationResourceChanges(
+            const record = await writeExplorationResourceChanges(
               current.changes,
               `撤销探索卡结算 D${entry.day} ${entry.name} #${entry.id}：${current.summary || ""}`,
-              "revert"
+              "revert", { entry }
             );
-            const { store, key } = explorationSettlementStore(entry);
-            delete store[key];
+            syncExplorationBatchReceipt(entry, record.explorationBatchReceipts[explorationRoundId(entry)]);
             saveState();
             renderFlow();
           } catch (error) {
@@ -7954,8 +9762,10 @@
         actions.appendChild(undoButton);
       } else {
         const plan = planInfo.plan;
-        const statusText = plan.status === "empty"
-          ? `${kindLabel} · 资源收益无法自动识读，请手动结算`
+        const statusText = plan.blocked
+          ? `${kindLabel} · ${plan.summary}`
+          : plan.status === "empty"
+          ? `${kindLabel} · ${(card.unresolved || []).length ? "资源收益需手动处理" : "请处理下列效果"}`
           : (plan.status === "auto" && !plan.grants.length
             ? `${kindLabel} · 当前外交状态下没有资源收益，只有下列效果`
             : `${kindLabel} · ${plan.summary}`);
@@ -7963,32 +9773,37 @@
           ? ` · 适用：${mapFactionLabel(cycleId, selectedFaction, localFactions.indexOf(selectedFaction))}` : ""}`;
 
         const runSettle = async (variant) => {
+          if (getExplorationSettlement(entry)) return;
+          if (!variant) {
+            setBusy(true, "正在写入记录表…");
+            try { await settleExplorationCard(entry); }
+            catch (error) { setBusy(false); window.alert(`自动结算失败：${error?.message || error}`); renderFlow(); }
+            return;
+          }
           const grants = variant ? variant.grants : plan.grants;
           const changes = rules.planChanges(explorationResourceDataset(), cycleId, grants);
           if (!changes.length) return;
           const summary = rules.describeChanges(changes);
+          const settlement = explorationSettlementStore(entry);
+          const savedContext = explorationContextSnapshot(context);
           setBusy(true, "正在写入记录表…");
           try {
-            await writeExplorationResourceChanges(
+            const record = await writeExplorationResourceChanges(
               changes,
               `探索卡自动结算 D${entry.day} ${entry.name} #${entry.id}：${summary}`,
-              "apply"
+              "apply", { entry, receipt: {
+                at: Date.now(), day: normalizeCampaignDay(entry.day, cycleId), cardId: entry.id,
+                variant: variant?.id || "auto", summary, changes, context: savedContext,
+              } }
             );
-            const { store, key } = explorationSettlementStore(entry);
-            store[key] = {
-              at: Date.now(),
-              day: normalizeCampaignDay(entry.day, cycleId),
-              cardId: entry.id,
-              variant: variant?.id || "auto",
-              summary,
-              changes,
-            };
+            syncExplorationBatchReceipt(entry, record.explorationBatchReceipts[explorationRoundId(entry)]);
             saveState();
             renderFlow();
           } catch (error) {
             console.warn(error);
             setBusy(false);
             window.alert(`自动结算失败：${error?.message || error}`);
+            renderFlow();
           }
         };
 
@@ -7999,7 +9814,7 @@
           if (plan.grants.length) {
             const button = document.createElement("button");
             button.type = "button";
-            button.textContent = card.kind === rules.KIND_RESOURCE_ONLY ? "自动结算" : "结算资源部分";
+            button.textContent = "自动结算";
             button.title = plan.summary;
             button.addEventListener("click", () => void runSettle(null));
             actions.appendChild(button);
@@ -8008,6 +9823,7 @@
           plan.variants.forEach((variant) => {
             const button = document.createElement("button");
             button.type = "button";
+            button.className = "exploration-settle-choice";
             button.textContent = variant.id === "base" ? "基础值结算" : variant.label;
             const conditionHint = variant.badge ? `条件：${variant.badge}。` : "";
             button.title = `${conditionHint}${rules.describeChanges(rules.planChanges(explorationResourceDataset(), cycleId, variant.grants))}（卡面条件无法自动判定，请按实际战况选择）`;
@@ -8017,15 +9833,28 @@
         }
       }
 
-      const manual = planInfo.plan?.manual || [];
-      if (manual.length) {
-        const list = manualList(manual);
-        if (list) block.appendChild(list);
+      const effectList = createExplorationEffectList(entry, card, context);
+      if (card.diplomacyMenu && context.diplomacy.length) {
+        const relation = document.createElement("div");
+        relation.textContent = `已读取 ${context.diplomacy[0].label}：${context.diplomacy[0].statusLabel || context.diplomacy[0].bonus} · 只结算对应外交条目`;
+        status.appendChild(relation);
       }
-      if (!saved && card.kind === rules.KIND_RESOURCE_PLUS) {
+      if (card.key === "c1:6400" && !window.ATO_EXPLORATION_CONDITIONS?.simpleConditionalEffects(card, context).length) {
+        const hint = document.createElement("div");
+        hint.textContent = "请先在记录表填写陌生人、船员和命运数量，以自动判定坏日子。";
+        status.appendChild(hint);
+      }
+      if (effectList) block.appendChild(effectList);
+      const choices = createExplorationChoiceTools(entry, card, context);
+      if (choices) block.appendChild(choices);
+      const optionTools = createExplorationOptionTools(entry, card, context);
+      if (optionTools) block.appendChild(optionTools);
+      const delayTools = createExplorationDelayCardTools(entry, card, context);
+      if (delayTools) block.appendChild(delayTools);
+      if (!saved && effectList?.querySelector(".exploration-settle-manual")) {
         const hint = document.createElement("div");
         hint.className = "exploration-settle-status";
-        hint.textContent = "卡面其它效果仍需手动处理。";
+        hint.textContent = "记录表效果可直接结算，其余效果处理后请标记完成。";
         block.appendChild(hint);
       }
       return block;
@@ -8048,21 +9877,32 @@
       const toolbar = document.createElement("div");
       toolbar.className = "exploration-toolbar";
 
+      const hasActiveExplorationDraw = drawState.activePiles.flat().length > 0;
       const status = document.createElement("div");
       status.className = "exploration-status";
+      // 派系外交状态常驻显示（当前所在派系会加底色突出），探索中随时能对照。
       status.appendChild(createExplorationFactionStatus());
 
       const buttons = document.createElement("div");
       buttons.className = "exploration-buttons";
-      const hasActiveExplorationDraw = drawState.activePiles.flat().length > 0;
+      // 有牌在结算时：先点一次「一键结算」跑自动部分；如果还剩需要手动处理的项，按钮文本
+      // 立刻变成「结算完毕」（不弹窗，待办就列在下面的结算明细里），再点一次才真的结束本轮。
+      const settleButtonText = hasActiveExplorationDraw
+        ? (explorationSettlePrepared ? "结算完毕" : "一键结算")
+        : "抽探索卡";
       const drawButton = document.createElement("button");
       drawButton.type = "button";
       drawButton.className = "step-action-button";
-      drawButton.textContent = hasActiveExplorationDraw ? "结算完毕" : "抽探索卡";
-      drawButton.disabled = selectedIds.length === 0 && !hasActiveExplorationDraw;
+      drawButton.textContent = settleButtonText;
+      drawButton.disabled = (selectedIds.length === 0 && !hasActiveExplorationDraw)
+        || Boolean(settleExplorationDraw.busy || mutateExplorationRecord.busy);
       drawButton.addEventListener("click", () => {
-        if (hasActiveExplorationDraw) endExplorationDraw();
-        else drawExplorationCard();
+        if (!hasActiveExplorationDraw) {
+          drawExplorationCard();
+          return;
+        }
+        if (explorationSettlePrepared) void completeExplorationDraw();
+        else void settleExplorationDraw();
       });
 
       const returnButton = document.createElement("button");
@@ -8075,11 +9915,9 @@
       buttons.append(drawButton, returnButton);
       toolbar.append(status, buttons);
 
-      const summary = document.createElement("div");
-      summary.className = "exploration-summary";
-      summary.innerHTML = `
-        <div>牌堆 ${drawState.drawPile.length} / 当前牌组 ${selectedIds.length}，待结算 ${drawState.activePiles.flat().length}，暂时移出 ${drawState.temporaryRemoved.length}${specialRule ? `，破坏卡组 ${destructionPileIds.length}` : ""}</div>
-      `;
+      // 这里原先还有一行「牌堆 N / 当前牌组 N，待结算 N，暂时移出 N」的统计。删掉：
+      // 「放回暂时移出（N）」按钮已经写着暂存张数，抽出的牌就在下面列着，剩下两个数字
+      // 每次探索都挂在步骤上没什么用。
 
       // 抽出的牌只显示牌面本身：天数/卡名/黑底编号和移出·连抽标签都不再重复印在卡下面，
       // 卡面上本来就有这些信息；抽出的张数由上方状态行负责说明，不再单独加标题。
@@ -8091,6 +9929,22 @@
         drawnFace.setAttribute("aria-label", `${entry.name} #${entry.id}`);
         drawnFace.setAttribute("role", "img");
         drawnFace.style.cssText = getExplorationCardImageStyle(entry.id);
+        if (options.interactive) {
+          const cycleId = currentCycleConfig().id;
+          const rotate = { c1: "13400", c2: "13640", c3: "13537" }[cycleId] === entry.id;
+          const landscape = rotate || ({ c4: ["9328", "9331"], c5: ["10309"] }[cycleId] || []).includes(entry.id);
+          if (landscape) {
+            drawnCard.className += " is-landscape";
+            drawnFace.className += " is-landscape";
+            if (rotate) {
+              const image = document.createElement("div");
+              image.className = "exploration-drawn-image is-rotated";
+              image.style.cssText = drawnFace.style.cssText;
+              drawnFace.style.cssText = "";
+              drawnFace.appendChild(image);
+            }
+          }
+        }
         drawnCard.append(drawnFace);
         if (options.interactive) {
           const settleBlock = createExplorationSettleBlock(entry);
@@ -8111,23 +9965,10 @@
         drawnCards.appendChild(drawnGrid);
       }
 
-      const removedPiles = document.createElement("section");
-      removedPiles.className = "exploration-removed-piles";
-      if (drawState.temporaryRemoved.length) {
-        const temporarySection = document.createElement("details");
-        temporarySection.className = "exploration-removed-pile";
-        const temporaryHead = document.createElement("summary");
-        temporaryHead.className = "exploration-pile-head";
-        temporaryHead.textContent = `暂时移出牌堆（${drawState.temporaryRemoved.length} 张）`;
-        const temporaryGrid = document.createElement("div");
-        temporaryGrid.className = "exploration-drawn-grid";
-        drawState.temporaryRemoved.forEach((entry) => temporaryGrid.appendChild(createDrawnCard(entry)));
-        temporarySection.append(temporaryHead, temporaryGrid);
-        removedPiles.appendChild(temporarySection);
-      }
-
+      // 「选择探索卡库」折叠区：横向与「暂时移出牌堆」并排，同时只允许打开一个。
       const builder = document.createElement("details");
       builder.className = "exploration-builder";
+      builder.open = false;
       const builderSummary = document.createElement("summary");
       builderSummary.textContent = "选择探索卡库";
       builder.appendChild(builderSummary);
@@ -8149,6 +9990,7 @@
       restoreDefaultButton.hidden = !defaultExplorationSelections[currentCycleConfig().id]?.length;
       restoreDefaultButton.addEventListener("click", restoreDefaultExplorationSelection);
 
+      // 卡库内容只建一次，哪个折叠区打开就挂到哪个里面（见下面的 onPaneToggle）。
       const libraryList = document.createElement("div");
       libraryList.className = "exploration-library";
       const selectedSet = new Set(selectedIds);
@@ -8197,21 +10039,116 @@
       ];
       applyButton.addEventListener("click", () => applyExplorationSelection(getCheckedIds()));
 
+      // 「选择探索卡库」的工具栏 + 隐藏卡菜单 + 卡库列表，默认挂在自己的折叠区里。
       builderActions.append(applyButton, restoreDefaultButton);
-      builderBody.append(builderActions, hiddenMenu, libraryList);
-      builder.appendChild(builderBody);
-
-      wrapper.append(toolbar, summary);
-      if (drawState.activePiles.flat().length) wrapper.appendChild(drawnCards);
-      if (drawState.temporaryRemoved.length) wrapper.appendChild(removedPiles);
+      // 破坏卡组（只有带 destructionIds 的循环才有）跟卡库放在同一层子菜单里，
+      // 排在卡库列表**上面**：先处理破坏卡组，再往下才是那一大片卡库列表。
       const destructionTools = createExplorationDestructionTools(selectedIds, destructionPileIds);
-      if (destructionTools) wrapper.appendChild(destructionTools);
-      wrapper.appendChild(builder);
+      builderBody.append(builderActions, hiddenMenu, ...(destructionTools ? [destructionTools] : []), libraryList);
       // 选择数量属于卡库内容，随卡库一起折叠。
       const selectedCount = document.createElement("div");
       selectedCount.className = "exploration-count";
       selectedCount.textContent = `已选 ${selectedIds.length} / ${library.length} 张`;
       builderBody.prepend(selectedCount);
+      builder.appendChild(builderBody);
+
+      // 两个折叠区横向并排，同时只允许打开一个；打开后占满整个宽度（跨两列），另一个
+      // 折叠回标题行、落在下一行左侧。所以两处都不适合再套一层自己的网格布局。
+      const temporarySection = document.createElement("details");
+      temporarySection.className = "exploration-removed-pile";
+      temporarySection.open = false;
+      const temporaryHead = document.createElement("summary");
+      temporaryHead.textContent = `暂时移出牌堆（${drawState.temporaryRemoved.length} 张）`;
+      temporarySection.appendChild(temporaryHead);
+      if (drawState.temporaryRemoved.length) {
+        const temporaryGrid = document.createElement("div");
+        temporaryGrid.className = "exploration-drawn-grid";
+        drawState.temporaryRemoved.forEach((entry) => temporaryGrid.appendChild(createDrawnCard(entry)));
+        temporarySection.appendChild(temporaryGrid);
+      } else {
+        const empty = document.createElement("div");
+        empty.className = "exploration-summary";
+        empty.textContent = "暂无暂时移出的卡牌";
+        temporarySection.appendChild(empty);
+      }
+
+      // 卡库内容永远跟着"当前打开的那个折叠区"走；谁都没打开时回到卡库自己的折叠区。
+      // 注意不能只按"刚收起的那一个"来搬：收起暂时移出牌堆会被程序性地触发一次 toggle，
+      // 而那时卡库可能已经被别的操作重新打开了，按收起方判断会把内容搬错地方。
+      const attachLibraryBody = (container) => {
+        if (!container.contains(builderBody)) container.appendChild(builderBody);
+      };
+      // 收起方要记下来：toggle 事件是异步派发的，等它到达时 open 属性可能已经被别的操作
+      // 改回去了，光看"谁现在开着"会把刚收起的那个又当成打开的那个。
+      let closingPane = null;
+      const onPaneOpen = (pane) => {
+        // 用 closePane 走"程序性收起"，这样另一个折叠区异步派发来的 toggle 也能被
+        // closingPane 认出来，不会把卡库内容又搬回去。
+        if (pane === temporarySection) closePane(builder);
+        else closePane(temporarySection);
+        if (pane === temporarySection) attachLibraryBody(temporarySection);
+        else attachLibraryBody(builder);
+      };
+      const onPaneClose = (pane) => {
+        if (pane === closingPane) closingPane = null;
+        // 空牌堆也保留入口，卡库内容仍跟随当前打开的折叠区。
+        if (builder.open) attachLibraryBody(builder);
+        else if (temporarySection.open && temporarySection !== closingPane && !temporarySection.hidden) {
+          attachLibraryBody(temporarySection);
+        } else {
+          attachLibraryBody(builder);
+        }
+      };
+      const closePane = (pane) => {
+        if (!pane.open) return;
+        closingPane = pane;
+        pane.open = false;
+      };
+      temporarySection.addEventListener("toggle", () => {
+        if (temporarySection.open) onPaneOpen(temporarySection);
+        else onPaneClose(temporarySection);
+      });
+      builder.addEventListener("toggle", () => {
+        if (builder.open) onPaneOpen(builder);
+        else onPaneClose(builder);
+      });
+
+      // 两个入口在所有循环常驻，空的暂时移出牌堆展示说明。
+      const removedPiles = document.createElement("section");
+      removedPiles.className = "exploration-removed-piles";
+      removedPiles.append(temporarySection, builder);
+
+      wrapper.append(toolbar);
+      const lastSettlement = state.exploration.lastSettlementByCycle?.[currentCycleConfig().id];
+      if (lastSettlement) {
+        const report = document.createElement("div");
+        report.className = "exploration-settle exploration-batch-report";
+        report.setAttribute("aria-live", "polite");
+        const pending = hasActiveExplorationDraw ? pendingExplorationEffects() : lastSettlement.pending || [];
+        const count = (lastSettlement.completed || []).length;
+        // 「查看自动结算明细」折叠区已按需求整块删除（不再逐条列自动处理了什么），只留
+        // 一句概括 + 还需要玩家手动处理的清单。
+        const result = document.createElement("div");
+        result.className = "exploration-batch-result";
+        result.textContent = `本次自动处理 ${count} 项。${pending.length
+          ? `还有 ${pending.length} 项需要选择、确认或手动处理；处理后点「结算完毕」结束本轮。`
+          : "全部效果已处理。"}`;
+        report.appendChild(result);
+        if (pending.length) {
+          const list = document.createElement("ul");
+          list.className = "exploration-settle-manual";
+          pending.forEach((text) => {
+            const item = document.createElement("li");
+            item.textContent = text;
+            list.appendChild(item);
+          });
+          report.appendChild(list);
+        }
+        wrapper.appendChild(report);
+      }
+      if (drawState.activePiles.flat().length) wrapper.appendChild(drawnCards);
+      wrapper.appendChild(removedPiles);
+      // 破坏卡组不在这里挂：它已经并入上面「选择探索卡库」折叠区的 body。
       return wrapper;
     }
 
@@ -8395,11 +10332,12 @@
       });
     }
 
-    // C4 的每天都算战斗日（battleEveryDay），其它循环仍按 battleDays 逐日标记。
-    // 时间表之外的续推日对 C4 同样成立，这样一直点「进入下一天」也不会丢掉战斗标记。
+    // C4 在指定日期战斗，并从 battleEveryDayFrom 起每天战斗（包括续推日）。
+    // 其它循环仍按各自的 battleDays 逐日标记。
     function isTrackBattleDay(day, track) {
       if (day == null) return false;
-      if (track?.battleEveryDay) return true;
+      if (Number.isInteger(day) && Number.isInteger(track?.battleEveryDayFrom)
+          && day >= track.battleEveryDayFrom) return true;
       return Boolean(track?.battleDays?.includes(day));
     }
 
@@ -8470,16 +10408,18 @@
         twilightWatch: "暮光守望",
         none: "无",
       },
+      // 中文名取自记录表的 diplomacy 表（record/index.html），三处保持一致：
+      // 记录表、故事实体索引、地图派系标签。
       c4: {
-        wasters: "Wasters",
-        aristotelians: "Aristotelians",
-        cloudThieves: "Cloud Thieves",
+        wasters: "浪费者",
+        aristotelians: "亚里士多德远征军",
+        cloudThieves: "云贼",
         none: "无",
       },
       c5: {
-        followersOfArete: "Followers of Areté",
-        cycladeanProtectorate: "Cycladean Protectorate",
-        outcastVanguard: "Outcast Vanguard",
+        followersOfArete: "阿瑞特追随者",
+        cycladeanProtectorate: "保护国",
+        outcastVanguard: "弃民先锋",
         none: "无",
       },
     };
@@ -8541,9 +10481,18 @@
       return syncedLabels[index] || mapFactionLabelsByCycle[cycleId]?.[factionId] || factionId;
     }
 
-    function diplomacyValue(cycleId, factionId) {
-      const diplomacy = isPlainObject(cachedArgoRecord?.diplomacy) ? cachedArgoRecord.diplomacy : {};
-      const raw = diplomacy[`${cycleId}-${factionId}`] ?? diplomacy[factionId];
+    function diplomacyValue(cycleId, factionId, record = cachedArgoRecord) {
+      const diplomacy = isPlainObject(record?.diplomacy) ? record.diplomacy : {};
+      // Older/imported records can spell Vanguard with its printed short name
+      // or official faction ID. Prefer the current cycle's canonical field,
+      // including an explicit blank, before considering a legacy spelling.
+      const aliases = factionId === "outcastVanguard" ? [factionId, "vanguard", "f_vanguard"] : [factionId];
+      const normalized = (key) => String(key).toLowerCase().replace(/[^a-z0-9]/g, "");
+      const keys = Object.keys(diplomacy);
+      const findKey = (candidates) => candidates.map((candidate) => Object.prototype.hasOwnProperty.call(diplomacy, candidate)
+        ? candidate : keys.find((key) => normalized(key) === normalized(candidate))).find((key) => key !== undefined);
+      const key = findKey(aliases.map((alias) => `${cycleId}-${alias}`)) ?? findKey(aliases);
+      const raw = key === undefined ? undefined : diplomacy[key];
       if (raw === "" || raw === null || raw === undefined) return null;
       const value = Number(raw);
       return Number.isFinite(value) ? value : null;
@@ -8560,18 +10509,28 @@
       return status;
     }
 
+    // 三个派系全部列出，并把 AG 当前格所在的那个标成 current（界面上加粗）。
+    // 当前派系取 currentMapFactions()：它可能给出多个（板块同时属于两个派系），所以
+    // 命中任意一个就算 current；「无阵营」不算派系，不会加粗任何一行。
     function currentMapFactionStatusItems() {
       const cycleId = currentCycleConfig().id;
+      const labels = mapFactionLabelsByCycle[cycleId] || {};
       const factions = currentMapFactions();
-      if (!factions.length) return [{ text: "AG 当前格：未同步地图阵营", muted: true }];
-      if (factions.includes("none")) return [{ text: "AG 当前格：无阵营", muted: true }];
+      const onTile = factions.filter((id) => id && id !== "none");
+      const ids = Object.keys(labels).filter((id) => id !== "none");
+      if (!ids.length) return [{ text: "AG 当前格：未同步地图阵营", muted: true }];
 
-      return factions.map((factionId, index) => {
-        const label = mapFactionLabel(cycleId, factionId, index);
+      return ids.map((factionId) => {
+        const label = labels[factionId] || factionId;
+        const current = onTile.includes(factionId);
         const value = diplomacyValue(cycleId, factionId);
-        if (value === null) return { text: `${label}：未记录外交`, muted: true };
+        if (value === null) return { text: `${label}：未记录外交`, muted: true, current };
         const status = diplomacyStatus(cycleId, value);
-        return { text: `${label}：${status.label} (${formatSignedNumber(status.bonus)})`, muted: false };
+        return {
+          text: `${label}：${status.label} (${formatSignedNumber(status.bonus)})`,
+          muted: false,
+          current,
+        };
       });
     }
 
@@ -8580,7 +10539,7 @@
       row.className = "exploration-faction-status";
       currentMapFactionStatusItems().forEach((item) => {
         const chip = document.createElement("span");
-        chip.className = `exploration-faction-chip${item.muted ? " muted" : ""}`;
+        chip.className = `exploration-faction-chip${item.muted ? " muted" : ""}${item.current ? " current" : ""}`;
         chip.textContent = item.text;
         row.appendChild(chip);
       });
@@ -8621,7 +10580,11 @@
       const activeCycleId = currentCycleConfig().id;
       const activeCycleNum = Number(activeCycleId.replace(/\D/g, "") || 0);
       // Build set of unlocked keys (strip @@pageKey suffix).
-      const unlockedKeys = new Set(records.filter((r) => !r.unimportant).map((r) => String(r.key || "").toLowerCase().trim().replace(/@@.*$/, "")));
+      const unlockedKeys = new Set(records.filter((r) => {
+        const disabled = cachedArgoRecord && explorationDelayRules()
+          ? explorationDelayRules().isTechDisabled(cachedArgoRecord, activeCycleId, r.key) : r.disabled;
+        return !r.unimportant && !disabled;
+      }).map((r) => String(r.key || "").toLowerCase().trim().replace(/@@.*$/, "")));
       return _negotiationCardsCache.filter((card) => {
         if (!unlockedKeys.has(card.key)) return false;
         // Exclude cycle-only cards from previous cycles.
@@ -8661,9 +10624,9 @@
       if (tags.has("rr_adventure")) {
         reminders.push({
           title: "当前最新揭示板块有 R&R 冒险",
-          tag: { label: "R&R", className: "battle-tech" },
+          tag: { label: "R&R", className: "battle-tech rr" },
           desc: `${location} 是最新揭示的板块，并带有 R&R 冒险标签，请在本步骤结算 R&R。`,
-          className: "important",
+          className: "rr",
         });
       }
 
@@ -8683,10 +10646,10 @@
 
       return [{
         title: "当前城市可谈判",
-        tag: { label: "谈判", className: "structure-tech" },
+        tag: { label: "谈判", className: "structure-tech negotiation" },
         desc: `${currentMapTileLabel()} 可谈判。${negotiationTechText}`,
         html: cardImages || "",
-        className: "important",
+        className: "negotiation",
       }];
     }
 
@@ -8696,9 +10659,9 @@
       if (tags.has("progress") && state.mapCurrentTileIsLatestRevealed) {
         reminders.push({
           title: "新探索板块放置进展",
-          tag: { label: "进展", className: "structure-tech" },
+          tag: { label: "进展", className: "structure-tech advance" },
           desc: `${currentMapTileLabel()} 是最新揭示的板块，且带有进展指示物标记。请在故事步骤放置 1 个进展。`,
-          className: "tech story-progress",
+          className: "tech story-progress advance",
         });
       }
       // Check hero mnemos nodes pending settlement
@@ -8738,10 +10701,10 @@
                   const storyBookParam = buildMnemosBreakthroughHref(node, cycleId);
                   reminders.push({
                     title: `${name}「${cardName}」→ ${node}`,
-                    tag: { label: "回忆突破", className: "battle-tech" },
+                    tag: { label: "回忆突破", className: "battle-tech milestone" },
                     desc: `${name} 的回忆卡「${cardName}」进度已达 ${threshold}，节点 ${node} 待结算。`,
                     html: storyBookParam ? `<a class="mnemos-node-link" href="${escapeHtml(storyBookParam)}" target="_blank">跳转故事书 ${node}</a>` : "",
-                    className: "important",
+                    className: "milestone",
                   });
                 }
               }
@@ -8779,9 +10742,9 @@
       const source = [terrain.hub, terrain.source].filter(Boolean).join(" · ");
       return [{
         title: "下次战斗特殊板块",
-        tag: { label: "板块", className: "battle-tech" },
+        tag: { label: "板块", className: "battle-tech tile" },
         desc: `${terrain.terrain}${source ? `，来源：${source}` : ""}。`,
-        className: "tech terrain",
+        className: "tile",
         // 地形与分支名都出自勘察步骤的定数框，官方翻译沿用同一段术语（survey-record）。
         scope: "survey-record",
       }];
@@ -9633,7 +11596,7 @@
   </script>
   <script src="./assets/ato-terms.js?v=20261004-official-title"></script>
   <script src="./assets/english-terms.js?v=20261011-english4"></script>
-  <script src="./assets/english-ui.js?v=20261011-english4"></script>
+  <script src="./assets/english-ui.js?v=20261013-merchant8"></script>
   <script src="./assets/english-language.js?v=20261011-english4"></script>
   <script src="./assets/term-language.js?v=20261011-english4"></script>
   <script src="./assets/update/app-version.js?v=3.5.10-rc.2"></script>

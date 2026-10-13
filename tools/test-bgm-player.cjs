@@ -54,7 +54,9 @@ test("主控台：引入播放器、提供容器并按步骤同步", () => {
   assert.match(consoleSource, /<script src="\.\/assets\/bgm\/bgm\.js/);
   assert.match(consoleSource, /id="bgmControls"/);
   assert.match(consoleSource, /function syncBgmStage\(\)/);
-  assert.match(consoleSource, /syncBgmStage\(\);\s*\n\s*\}/);
+  const renderFlow = consoleSource.match(/^    function renderFlow\(\) \{[^]*?^    \}/m)?.[0];
+  assert.ok(renderFlow, "今日流程渲染函数应存在");
+  assert.match(renderFlow, /syncBgmStage\(\);/, "渲染今日流程时应同步音乐阶段");
 
   // 控制条位于「杂项设置」中，开关放在背景音乐标题行，不再挤在顶栏日期卡里
   assert.match(consoleSource, /<h3>背景音乐<\/h3>/);
